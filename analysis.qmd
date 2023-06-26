@@ -1,0 +1,249 @@
+---
+title: "Microbiome Data Analysis"
+author: "Daniel Quiroz"
+format: html
+editor: visual
+execute:
+  cache: false
+---
+
+Analysis pipeline base on this repository: [Bacteria Ark](https://gitlab.com/DanielQuiroz97/bacteria_ark/-/blob/master/CAYAMBE/Year%201/Analisis_final.Rmd)
+
+# Importing Libraries
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(phyloseq)
+library(tidyverse)
+library(microbiome)
+library(ggpubr)
+library(ggsci)
+library(ranacapa)
+library(psadd)
+```
+
+# Importing data
+
+## Importing raw data
+
+```{r message=FALSE, warning=FALSE}
+# Tax table
+tax_file <- read_tsv("Data/asv-taxonomy-mapping.tsv")
+
+# ASV table
+asv_count <- read_tsv("Data/asvtable-processed-absolute.tsv")
+
+# Metadata
+micro_metadata <- read.csv("Data/sample-metadata.csv", stringsAsFactors = T)
+```
+
+## Modifying tables fro phyloseq
+
+```{r}
+#ASV table
+asv_names <- asv_count$asv
+asv_count <- asv_count %>% select(-asv) 
+rownames(asv_count) <- asv_names 
+
+ASV <- otu_table(as.matrix(asv_count), taxa_are_rows = T)
+
+# Metadata
+micro_metadata <- as.data.frame(micro_metadata)
+rownames(micro_metadata) <- micro_metadata$NAME
+
+SAMPLE <- sample_data(micro_metadata)
+```
+
+
+## Separating Tax single column into multiple column
+
+```{r}
+# tax cleaning
+# https://www.yanh.org/2021/01/01/microbiome-r/
+
+# clean the taxonomy, Greengenes format
+tax <- tax_file %>%
+  select(tax) %>% 
+  separate(tax, c("Kingdom", "Phylum", "Class", "Order",
+                  "Family", "Genus", "Species"), ";") %>% 
+  mutate_all(str_sub, start = 4, end = -4) 
+
+tax <- replace(tax, tax == "", "Unclassified")
+rownames(tax) <- tax_file$asv
+
+TAX <- tax_table(as.matrix(tax))
+```
+
+
+## Creating a phyloseq object
+
+```{r}
+floral_microbiome_raw <- phyloseq(ASV, TAX, SAMPLE)
+floral_microbiome_raw
+```
+* 4256 taxa
+* 35 samples
+* 29 variables in metadata
+
+# Filtering data
+
+## Removing Unclassified 
+
+### Unclassified at Kindom level and Archea ASV
+
+
+```{r}
+floral_micro_filter <- subset_taxa(floral_microbiome_raw,
+                                   Kingdom != "Unclassified" & Kingdom != "Archaea")
+floral_micro_filter
+```
+We remove 3 taxa that are either *Unclassified* or *Archaea*
+
+### Removing cloroplast
+
+```{r}
+floral_micro_filter <- subset_taxa(floral_micro_filter,
+                                   Order != "Chloropl")
+floral_micro_filter
+```
+We removed 53 ASV assigned as *Chloroplast* at the Order level
+
+
+### Unclassified at Phylum level
+
+```{r}
+floral_micro_filter <- subset_taxa(floral_micro_filter,
+                                   Phylum != "Unclassified")
+floral_micro_filter
+```
+
+
+# Basis Read info
+
+## Sequencing depth
+
+```{r}
+# Sequencing depth
+SeqDepth = colSums(otu_table(floral_micro_filter))
+
+# Add depth to the metadata
+sample_data(floral_micro_filter)$SeqDepth <- SeqDepth
+
+meta(floral_micro_filter) %>% 
+  ggplot(aes(NAME, SeqDepth,fill = factor(Treatment))) +
+  geom_col() + theme_classic() + scale_fill_cosmic() + 
+  rotate_x_text() + 
+  labs(fill = "Treatment\nFertilizer (ppm)",
+       x = "Sample Name", y = "Secuencing Depth",
+       title = "Secuending depth per sample")
+```
+
+## Removing singletons 
+
+```{r}
+#checking for singletons
+sum(taxa_sums(floral_micro_filter) == 1)
+```
+
+6 ASV with only 1 count, these are considered chimeric and therefore, are removed
+
+```{r}
+floral_micro_filter <- prune_taxa(taxa_sums(floral_micro_filter) > 1,
+                                  floral_micro_filter)
+floral_micro_filter
+```
+
+## Kronas plot
+
+```{r eval=FALSE, include=TRUE}
+# Kronas per sample
+plot_krona(physeq = floral_micro_filter,
+           output = "Figures/Kronas/per_sample",
+           variable = "NAME")
+
+plot_krona(physeq = floral_micro_filter,
+           output = "Figures/Kronas/per_treatment",
+           variable = "Treatment")
+```
+
+
+## Rarefraction curves
+
+
+```{r  message=FALSE, warning=FALSE}
+set.seed(2023)
+
+plt_rarefraction <- ggrare(floral_micro_filter, step = 1000, 
+                           label = "NAME", se = F) +
+  theme_classic() + 
+  labs(title = "Rarefraction curves per sample")
+```
+## Relative Barchar
+
+### Phyla level
+
+```{r warning=FALSE, message=FALSE}
+# Calculate relative abundances
+floral_micro_rel <- transform_sample_counts(floral_micro_filter,
+                                            function(x) x/sum(x)*100)
+
+# Agglomerate taxa genus 
+floral_glom_fl <- tax_glom(floral_micro_rel, taxrank = "Family", NArm = FALSE)
+floral_glom_melt_fl <- psmelt(floral_glom_fl)
+floral_glom_melt_fl$Family <- as.character(floral_glom_melt_fl$Family)
+
+# Calculating 
+floral_gm_sum_fl <- floral_glom_melt_fl %>% 
+  group_by(NAME, Family, Treatment) %>% 
+  summarise(Abundance = sum(Abundance))
+
+floral_gm_sum_fl <- floral_gm_sum_fl %>% 
+  mutate(Treatment = factor(Treatment, levels = c(25, 100, 200) )) %>% 
+  mutate(Family = case_when(Abundance < 5 ~ "< 5%",
+                           TRUE ~ Family) )
+
+#ggplot
+ggplot(floral_gm_sum_fl, aes(NAME, Abundance, fill = Family) ) +
+  geom_bar(stat = "identity") + facet_wrap("Treatment", scales = "free_x") +
+  theme_classic() + rotate_x_text() + scale_fill_aaas()  +
+  labs(x = "Sample Name")
+```
+
+
+### Genus level
+```{r warning=FALSE, message=FALSE}
+# Calculate relative abundances
+
+
+# Agglomerate taxa genus 
+floral_glom <- tax_glom(floral_micro_rel, taxrank = "Genus", NArm = FALSE)
+floral_glom_melt <- psmelt(floral_glom)
+floral_glom_melt$Genus <- as.character(floral_glom_melt$Genus)
+
+# Calculating 
+floral_gm_sum <- floral_glom_melt %>% 
+  group_by(NAME, Genus, Treatment) %>% 
+  summarise(Abundance = sum(Abundance))
+
+floral_gm_sum <- floral_gm_sum %>% 
+  mutate(Treatment = factor(Treatment, levels = c(25, 100, 200) )) %>% 
+  mutate(Genus = case_when(Abundance < 3~ "< 3%",
+                           TRUE ~ Genus) )
+
+#ggplot
+ggplot(floral_gm_sum, aes(NAME, Abundance, fill = Genus) ) +
+  geom_bar(stat = "identity") + facet_wrap("Treatment", scales = "free_x") +
+  theme_classic() + rotate_x_text() +
+  labs(x = "Sample Name")
+```
+
+
+
+
+
+
+
+
+
+
+
+
