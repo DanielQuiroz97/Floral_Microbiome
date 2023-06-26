@@ -237,6 +237,24 @@ ggplot(floral_gm_sum, aes(NAME, Abundance, fill = Genus) ) +
 ```
 
 
+# Diversity calculations
+
+## Alpha diversity
+
+```{r}
+sample_data(floral_micro_filter)$Treatment <- 
+  factor(sample_data(floral_micro_filter)$Treatment, levels = c(25, 100, 200))
+
+richness <- estimate_richness(floral_micro_filter, 
+                              measures = c("Chao1", "Simpson", "Shannon"))
+
+
+plt_rich <- plot_richness(floral_micro_filter, color = "Treatment",
+              measures = c("Chao1", "Simpson", "Shannon"), nrow = 3) +
+  scale_color_aaas() + theme_bw() + rotate_x_text()
+plt_rich
+
+```
 
 
 
