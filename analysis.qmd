@@ -19,6 +19,7 @@ library(ggpubr)
 library(ggsci)
 library(ranacapa)
 library(psadd)
+library(DESeq2)
 ```
 
 # Importing data
@@ -53,7 +54,6 @@ rownames(micro_metadata) <- micro_metadata$NAME
 SAMPLE <- sample_data(micro_metadata)
 ```
 
-
 ## Separating Tax single column into multiple column
 
 ```{r}
@@ -73,29 +73,29 @@ rownames(tax) <- tax_file$asv
 TAX <- tax_table(as.matrix(tax))
 ```
 
-
 ## Creating a phyloseq object
 
 ```{r}
 floral_microbiome_raw <- phyloseq(ASV, TAX, SAMPLE)
 floral_microbiome_raw
 ```
-* 4256 taxa
-* 35 samples
-* 29 variables in metadata
+
+-   4256 taxa
+-   35 samples
+-   29 variables in metadata
 
 # Filtering data
 
-## Removing Unclassified 
+## Removing Unclassified
 
 ### Unclassified at Kindom level and Archea ASV
-
 
 ```{r}
 floral_micro_filter <- subset_taxa(floral_microbiome_raw,
                                    Kingdom != "Unclassified" & Kingdom != "Archaea")
 floral_micro_filter
 ```
+
 We remove 3 taxa that are either *Unclassified* or *Archaea*
 
 ### Removing cloroplast
@@ -105,8 +105,8 @@ floral_micro_filter <- subset_taxa(floral_micro_filter,
                                    Order != "Chloropl")
 floral_micro_filter
 ```
-We removed 53 ASV assigned as *Chloroplast* at the Order level
 
+We removed 53 ASV assigned as *Chloroplast* at the Order level
 
 ### Unclassified at Phylum level
 
@@ -115,7 +115,6 @@ floral_micro_filter <- subset_taxa(floral_micro_filter,
                                    Phylum != "Unclassified")
 floral_micro_filter
 ```
-
 
 # Basis Read info
 
@@ -137,7 +136,7 @@ meta(floral_micro_filter) %>%
        title = "Secuending depth per sample")
 ```
 
-## Removing singletons 
+## Removing singletons
 
 ```{r}
 #checking for singletons
@@ -147,7 +146,7 @@ sum(taxa_sums(floral_micro_filter) == 1)
 6 ASV with only 1 count, these are considered chimeric and therefore, are removed
 
 ```{r}
-floral_micro_filter <- prune_taxa(taxa_sums(floral_micro_filter) > 1,
+floral_micro_filter <- prune_taxa(taxa_sums(floral_micro_filter) > 5,
                                   floral_micro_filter)
 floral_micro_filter
 ```
@@ -165,9 +164,7 @@ plot_krona(physeq = floral_micro_filter,
            variable = "Treatment")
 ```
 
-
 ## Rarefraction curves
-
 
 ```{r  message=FALSE, warning=FALSE}
 set.seed(2023)
@@ -177,6 +174,7 @@ plt_rarefraction <- ggrare(floral_micro_filter, step = 1000,
   theme_classic() + 
   labs(title = "Rarefraction curves per sample")
 ```
+
 ## Relative Barchar
 
 ### Phyla level
@@ -208,8 +206,8 @@ ggplot(floral_gm_sum_fl, aes(NAME, Abundance, fill = Family) ) +
   labs(x = "Sample Name")
 ```
 
-
 ### Genus level
+
 ```{r warning=FALSE, message=FALSE}
 # Calculate relative abundances
 
@@ -236,7 +234,6 @@ ggplot(floral_gm_sum, aes(NAME, Abundance, fill = Genus) ) +
   labs(x = "Sample Name")
 ```
 
-
 # Diversity calculations
 
 ## Alpha diversity
@@ -249,19 +246,143 @@ richness <- estimate_richness(floral_micro_filter,
                               measures = c("Chao1", "Simpson", "Shannon"))
 
 
-plt_rich <- plot_richness(floral_micro_filter, color = "Treatment",
-              measures = c("Chao1", "Simpson", "Shannon"), nrow = 3) +
-  scale_color_aaas() + theme_bw() + rotate_x_text()
-plt_rich
+plt_rich_chao1 <- plot_richness(floral_micro_filter, 
+              measures = c("Chao1"), nrow = 3) +
+  scale_color_aaas() + theme_bw() + rotate_x_text() +
+  facet_wrap(variable~Treatment )
+plt_rich_chao1
 
 ```
 
+# Deseq2 analysis
 
+## Remove poor represented ASV
 
+In this case, since we are going to conduct comparative analysis, we need to remove ASV with less that 5 counts as well as to be detected in at least 50% of the samples. This yields to a total of 534 taxa that meet this two criteria.
 
+```{r}
+floral_micro_filter_5C <- genefilter_sample(floral_micro_filter,
+                                            filterfun_sample(function(x) x > 5),
+                                            A=0.5*nsamples(floral_micro_filter)
+)
 
+floral_micro_deseq <- prune_taxa(floral_micro_filter_5C, floral_micro_filter)
+floral_micro_deseq
+```
 
+## Transform counts to a even depth
 
+As we can see, 71080 is an intermediate sequencing depth for treatment. We are going to transform the count table from absolute counts to an homogeneous depth.
 
+```{r}
+meta(floral_micro_deseq) %>%
+  group_by(Treatment) %>% 
+  summarise(Depth_mean = mean(SeqDepth))
+```
 
+```{r}
+floral_micro_relat <- transform_sample_counts(floral_micro_deseq,
+                                              function(x) 71080 * x/(sum(x)))
+```
 
+## Keeping the 6 most abundant phyla
+
+Only the six most abundant phyla are preserved for downstream analysis to remove low represented ASV.
+
+This can be view in the Kronas plot and the Top Six Phylum are
+
+-   Proteobacte
+
+-   Actinobacteri
+
+-   Bacteroid
+
+-   Verrucomicrobi
+
+-   Plantcomycet
+
+```{r}
+phylum_sum <- tapply(taxa_sums(floral_micro_relat),
+                     tax_table(floral_micro_relat)[, "Phylum"], sum, na.rm = TRUE)
+
+top5phyla <- names(sort(phylum_sum, decreasing = TRUE))[seq(6)]
+top5phyla
+```
+
+```{r}
+floral_micro_relat <- prune_taxa((tax_table(floral_micro_relat)[, "Phylum"] %in% top5phyla),
+                                 floral_micro_relat)
+floral_micro_relat
+```
+
+The final result yield us to a total of 456 ASV for downstream analysis.
+
+## Transforming to Deseq2 object
+
+```{r}
+
+ phyloseq::sample_data(floral_micro_relat) <- meta(floral_micro_relat) %>% 
+   mutate(Block = factor(Block, levels = seq(6) ),
+          Time = factor(Time), 
+          Treatment = factor(Treatment))
+ 
+diagdds_floral <- phyloseq_to_deseq2(floral_micro_relat, 
+                                     design =  ~Block + Treatment + Time + Treatment*Time)
+```
+
+```{r}
+gm_mean = function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans = apply(counts(diagdds_floral), 1, gm_mean)
+
+# Variance estimation
+diagdds_floral = estimateSizeFactors(diagdds_floral, geoMeans = geoMeans)
+diagdds_floral = estimateDispersions(diagdds_floral, fitType='local')
+
+```
+
+Extraction of the normalized matrix
+
+```{r}
+diagvst_floral = getVarianceStabilizedData(diagdds_floral)
+dim(diagvst_floral)
+
+```
+
+Now, we can replace the normalized matrix for the absolute counts in the phyloseq object
+
+```{r}
+floral_micro_deseq_final <- floral_micro_rel
+otu_table(floral_micro_deseq_final) <- otu_table(diagvst_floral, taxa_are_rows = TRUE)
+```
+
+## Differential ASV
+
+Let's check first the design to make sure we have the right formula
+
+```{r}
+design(diagdds_floral)
+```
+
+```{r}
+#Defining alpha level
+alpha = 0.05
+
+#Differential analysis
+diagdds_floral <- DESeq(diagdds_floral, fitType = "local")
+results_deseq <- results(diagdds_floral)
+#results_deseq <- diagdds_floral[order(diagdds_floral$padj, na.last = NA), ]
+resultsNames(diagdds_floral)
+
+```
+
+```{r}
+sig_dif_asv <- results_deseq[which(results_deseq$padj < alpha), ]
+
+sig_dif_asv <- cbind(as(sig_dif_asv,"data.frame"),
+                      as(tax_table(floral_micro_deseq_final)[rownames(sig_dif_asv), ],
+                         "matrix"))
+sig_dif_asv <- remove_rownames(sig_dif_asv)
+sig_dif_asv
+```
