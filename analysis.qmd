@@ -20,6 +20,7 @@ library(ggsci)
 library(ranacapa)
 library(psadd)
 library(DESeq2)
+library(vegan)
 ```
 
 # Importing data
@@ -385,4 +386,63 @@ sig_dif_asv <- cbind(as(sig_dif_asv,"data.frame"),
                          "matrix"))
 sig_dif_asv <- remove_rownames(sig_dif_asv)
 sig_dif_asv
+```
+
+# CCA analysis
+
+## Preparing data
+
+In this step, we are going to use the top 6 phyla
+
+```{r}
+## Extracting the community mattrix
+comm_matrix =  as(otu_table(floral_micro_relat), "matrix")
+comm_matrix = t(comm_matrix)
+comm_matrix = as.data.frame(comm_matrix)
+
+##Extracting the taxonomic matrix from the Phyloseq object
+Taxonomy_id = as(tax_table(floral_micro_relat), "matrix")
+Taxonomy_id = as.data.frame(Taxonomy_id)
+
+## Preparing environmental data
+env_data <- micro_metadata %>% 
+  select(pH, EC..us.cm., TOC..mg.L., TN..mg.L., Sodium..ppm., Lithium..ppm., Potassium..ppm.,
+         Magnesium..ppm., Calcium..ppm., Flouride..ppm., Chloride..ppm., Nitrate..ppm.,
+         Sulfate..ppm., Phosphate..ppm., TotalShoot, RootTOShoot, RootDW) %>% 
+  mutate_all(~replace_na(., 0))
+# Remove L5 from env_data as not present
+env_data <- env_data[-5, ]
+
+# Assigning names to the genera
+names(comm_matrix) <- Taxonomy_id$Genus
+
+```
+
+### Running CCA analysis
+
+According to \`?vegan::vif.cca\`, variables produce variance inflation, which will decrease the sifnificance
+
+of the analysis. As a rule of thumb, values over 10 indicate redundant constraints. Therefore,
+
+Variables over 11, will be removed from the analysis.
+
+```{r}
+CCA_analysis_raw <- cca(comm_matrix ~ pH +EC..us.cm. +TOC..mg.L.+TN..mg.L.+Sodium..ppm.+Lithium..ppm.+Potassium..ppm.+Magnesium..ppm.+Calcium..ppm.+Flouride..ppm.+Chloride..ppm.+Nitrate..ppm.+Sulfate..ppm.+Phosphate..ppm.+RootTOShoot, data = env_data)
+```
+
+```{r}
+data.frame(Values = vif.cca(CCA_analysis_raw)) %>% filter(Values < 11)
+```
+
+## Running step-wise selection
+
+```{r}
+
+# Creating a null model
+mod0 <- cca(comm_matrix ~ 1, data = env_data)
+mod <- ordistep(mod0, scope = formula(CCA_analysis), direction = "both", trace = 1 )
+```
+
+```{r}
+plot(mod, type = "n")
 ```
