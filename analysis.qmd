@@ -1,7 +1,7 @@
 ---
 title: "Microbiome Data Analysis"
 author: "Daniel Quiroz"
-format: html
+format: gfm
 editor: visual
 execute:
   cache: false
@@ -128,13 +128,20 @@ SeqDepth = colSums(otu_table(floral_micro_filter))
 # Add depth to the metadata
 sample_data(floral_micro_filter)$SeqDepth <- SeqDepth
 
-meta(floral_micro_filter) %>% 
+seq_depth_plot <- meta(floral_micro_filter) %>% 
   ggplot(aes(NAME, SeqDepth,fill = factor(Treatment))) +
   geom_col() + theme_classic() + scale_fill_cosmic() + 
   rotate_x_text() + 
   labs(fill = "Treatment\nFertilizer (ppm)",
        x = "Sample Name", y = "Secuencing Depth",
-       title = "Secuending depth per sample")
+       title = "Secuending depth per sample grouped by Time") +
+  facet_wrap("Time", scales = "free_x") 
+seq_depth_plot
+```
+
+```{r eval=FALSE, include=FALSE}
+ggsave(filename = "SequencingDepth.jpg", path = "Figures/jpeg", 
+       plot = seq_depth_plot, dpi = 600, width = 7, height = 4, units = "in")
 ```
 
 ## Removing singletons
@@ -160,9 +167,15 @@ plot_krona(physeq = floral_micro_filter,
            output = "Figures/Kronas/per_sample",
            variable = "NAME")
 
+# Per treatment
 plot_krona(physeq = floral_micro_filter,
            output = "Figures/Kronas/per_treatment",
            variable = "Treatment")
+
+# Per time
+plot_krona(physeq = floral_micro_filter,
+           output = "Figures/Kronas/per_time",
+           variable = "Time")
 ```
 
 ## Rarefraction curves
@@ -174,6 +187,11 @@ plt_rarefraction <- ggrare(floral_micro_filter, step = 1000,
                            label = "NAME", se = F) +
   theme_classic() + 
   labs(title = "Rarefraction curves per sample")
+```
+
+```{r eval=FALSE, include=FALSE}
+ggsave(filename = "RarefractionCurves.jpg", path = "Figures/jpeg", 
+       plot = plt_rarefraction, dpi = 600, width = 6, height = 5, units = "in")
 ```
 
 ## Relative Barchar
@@ -201,10 +219,17 @@ floral_gm_sum_fl <- floral_gm_sum_fl %>%
                            TRUE ~ Family) )
 
 #ggplot
-ggplot(floral_gm_sum_fl, aes(NAME, Abundance, fill = Family) ) +
+rel_abundance_plot <- ggplot(floral_gm_sum_fl,
+                             aes(NAME, Abundance, fill = Family) ) +
   geom_bar(stat = "identity") + facet_wrap("Treatment", scales = "free_x") +
   theme_classic() + rotate_x_text() + scale_fill_aaas()  +
   labs(x = "Sample Name")
+rel_abundance_plot
+```
+
+```{r eval = FALSE, include=FALSE}
+ggsave(filename = "RelativeAbundance.jpg", path = "Figures/jpeg", 
+       plot = rel_abundance_plot, dpi = 600, width = 7, height = 5, units = "in")
 ```
 
 ### Genus level
@@ -229,10 +254,16 @@ floral_gm_sum <- floral_gm_sum %>%
                            TRUE ~ Genus) )
 
 #ggplot
-ggplot(floral_gm_sum, aes(NAME, Abundance, fill = Genus) ) +
+rel_abun_genus <- ggplot(floral_gm_sum, aes(NAME, Abundance, fill = Genus) ) +
   geom_bar(stat = "identity") + facet_wrap("Treatment", scales = "free_x") +
   theme_classic() + rotate_x_text() +
   labs(x = "Sample Name")
+rel_abun_genus
+```
+
+```{r eval = FALSE, include=FALSE}
+ggsave(filename = "RelativeAbundance_genus.jpg", path = "Figures/jpeg", 
+       plot = rel_abun_genus, dpi = 600, width = 7, height = 5, units = "in")
 ```
 
 # Diversity calculations
@@ -434,15 +465,161 @@ CCA_analysis_raw <- cca(comm_matrix ~ pH +EC..us.cm. +TOC..mg.L.+TN..mg.L.+Sodiu
 data.frame(Values = vif.cca(CCA_analysis_raw)) %>% filter(Values < 11)
 ```
 
-## Running step-wise selection
+## Selecting environmental variables
+
+The previous section pointed out three variables with low colinearity what we can include in a cleaner
+
+CCA analysis.
 
 ```{r}
 
 # Creating a null model
 mod0 <- cca(comm_matrix ~ 1, data = env_data)
-mod <- ordistep(mod0, scope = formula(CCA_analysis), direction = "both", trace = 1 )
+mod <- ordistep(mod0, scope = formula(CCA_analysis_raw), direction = "both", trace = 1 )
 ```
 
 ```{r}
-plot(mod, type = "n")
+plot(mod)
+text(mod, "sites", col = "blue")
+```
+
+Here, we can see that only TOC, has a low p-val. However, this model do not accounts for any experimental design.
+
+### Adding experimental design
+
+PERMANOVA with the square root of dissimilarities (Bray-Curtis distances). Tests for the significance of the different terms of the model (the environmental variables).
+
+First, we test all the variables to have an starting point for comparison with a p-value of 0.159
+
+```{r}
+adonis2(comm_matrix ~ pH +EC..us.cm. +TOC..mg.L.+TN..mg.L.+Sodium..ppm.+Lithium..ppm.+Potassium..ppm.+Magnesium..ppm.+Calcium..ppm.+Flouride..ppm.+Chloride..ppm.+Nitrate..ppm.+Sulfate..ppm.+Phosphate..ppm.+RootTOShoot, data = env_data, method = 'bray', by = NULL, sqrt.dist = TRUE)
+```
+
+Now, in the previous section, 3 variables showed low collinearity (EC, TOC, ROOT2SHOOT) and TOC showedhad a low p-value. Therefore, the best variables to create a new robust model are these three.
+
+```{r}
+adonis2(comm_matrix ~ EC..us.cm. + TOC..mg.L. + RootTOShoot, 
+        data = env_data, method = 'bray', by = NULL, sqrt.dist = TRUE)
+```
+
+Surprisingly, the p-value increases which tell us the new model does not outperforms the initial model.
+
+After some testing, these are the three best escenarios
+
+```{r}
+adonis2(comm_matrix ~ EC..us.cm. + TOC..mg.L. , 
+        data = env_data, method = 'bray', by = NULL, sqrt.dist = TRUE)
+```
+
+```{r}
+adonis2(comm_matrix ~ EC..us.cm. , 
+        data = env_data, method = 'bray', by = NULL, sqrt.dist = TRUE)
+```
+
+```{r}
+adonis2(comm_matrix ~ TOC..mg.L. , 
+        data = env_data, method = 'bray', by = NULL, sqrt.dist = TRUE)
+```
+
+As we can see, the model with the lowest p-value is TOC. Unfortunately, we do not have environmental variables that are significantly driven differences in the data.
+
+### Final CCA
+
+From the last part, we did find any significant variables. However, for the final CCA analysis, we can include variables that although do not drive significant differences in the data (p-value \<0.05), can help us explain some diferencess between the samples. Therefore, we are heuristically including all variables that presented a p-value \> 0.2.
+
+```{r}
+CCA_analysis_final <- cca(comm_matrix ~EC..us.cm. + TOC..mg.L. + RootTOShoot+Calcium..ppm.+Potassium..ppm.+ TN..mg.L.+RootTOShoot+Nitrate..ppm., data = env_data)
+CCA_analysis_final
+```
+
+### CCA diagnostics
+
+Here, we will diagnose the goodnees of the fit of the environmental variables on the CCA. The previous analysis did not accounted for teh ASV distribution on a CCA space. Therefore, in this section, we will evaluate the the goodness of the env variables on the CCA.
+
+```{r}
+anova(CCA_analysis_final)
+```
+
+Here, we can see that our cca model is statistical significant, which means that are environmental variables that drive diferences.
+
+```{r cache=TRUE}
+anova(CCA_analysis_final, by='term', permutations = 9000)
+```
+
+Here, we can sEe that Calcium is the variables that causes the differentiation.
+
+```{r cache=TRUE}
+anova(CCA_analysis_final, by='axis', permutations = 9000)
+```
+
+According to this model, the CCA dimensions do not explain the diferences according the env variables. However, we will see later that CCA dimensions accounts for `Time`
+
+```{r}
+ordiplot(CCA_analysis_final)
+```
+
+```{r warning=FALSE}
+cca_coordinates <- scores(CCA_analysis_final)
+# Sample table
+cca_samples <- cca_coordinates$sites %>% # Extracting the samples CCA coordinates
+  as.data.frame %>% mutate(Samples = rownames(.))
+# Adding metadata
+sample_metadt <- micro_metadata %>% 
+  select(Samples = NAME, Treatment, Time, Block) %>% 
+  mutate(Treatment = factor(Treatment), Block = factor(Block), Time = factor(Time))
+
+# Joining tables
+cca_samples <- left_join(cca_samples, sample_metadt)
+
+
+# ASV table
+cca_asv <- cca_coordinates$species %>% as.data.frame %>% 
+  mutate(Genus = rownames(.))
+cca_asv_deseq2 <- left_join(sig_dif_asv, cca_asv)
+
+# Env data
+cca_env <- cca_coordinates$biplot %>% as.data.frame() %>% 
+  mutate(Variable = rownames(.)) %>%
+  mutate(Label = c("EC", "TOC", "R2S", "Ca*", "K", "TN", "NO3-"))
+```
+
+```{r}
+# Base plot
+cca_plot <- ggplot(cca_samples, aes(2*CCA1, 1.02*CCA2)) +
+  #lims(x = c(-3, 2.5), y = c(-3, 7)) +
+  geom_point( aes(color = Treatment, shape = Time), size = 3) +
+  ggrepel::geom_text_repel(aes(label = Samples)) +
+  ggsci::scale_color_startrek() +
+  theme_void() +
+  theme(legend.position = c(0.1, 0.75), 
+        legend.background = element_rect(fill = "white", color = "white")) +
+  theme(panel.grid = element_blank(), 
+        panel.border = element_rect(fill= "transparent")) +
+  geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+  geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+  # Adding env variables
+  geom_segment(data = cca_env, aes(x = 0, y = 0,
+                                   xend = 4.5*CCA1, yend = 4.5*CCA2),
+               arrow = arrow(length =  unit(0.2, "cm")), 
+               color = "mediumseagreen", linetype = 2) +
+  ggrepel::geom_text_repel(data = cca_env,# box.padding = 0.5,
+                           aes( 4.5*CCA1, 4.5*CCA2, label = Label),
+                           color = "mediumseagreen") +
+  # Adding all ASV and sig different ASV
+  geom_point(data = cca_asv, aes(CCA1, CCA2), shape = 3, alpha = 0.2) +
+  geom_point(data = cca_asv_deseq2, aes(CCA1, CCA2), shape = 3, color = "red") +
+  ggrepel::geom_text_repel(data = cca_asv_deseq2, box.padding = 0.45,
+                           aes(CCA1, CCA2, label = Genus))
+cca_plot
+```
+
+```{r eval=FALSE, include=FALSE}
+ggsave(filename = "CCA.jpg", path = "Figures/jpeg", 
+       plot = cca_plot, dpi = 600, width = 7, height = 5, units = "in")
+```
+
+## Session info
+
+```{r}
+sessionInfo()
 ```
