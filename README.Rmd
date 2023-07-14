@@ -21,11 +21,19 @@ The goal of Floral_Microbiome is to document the analysis conducted for the flor
 
 In this repository, you will find all the raw data, the code, and the final results of the project.
 
+# Useful resources
+
+-   [Raw data](https://github.com/DanielQuiroz97/Floral_Microbiome/tree/main/Data)
+
+-   [Analysis notebook](https://github.com/DanielQuiroz97/Floral_Microbiome/blob/main/analysis.md)
+
+-   [Figures folder](https://github.com/DanielQuiroz97/Floral_Microbiome/tree/main/Figures)
+
 # Useful figures
 
-## Kronas plot
+Please, go to the [kronas](https://github.com/DanielQuiroz97/Floral_Microbiome/tree/main/Figures/Kronas) folder to check all the kronas plot created, and for the rest of the plots, please visit the [jpeg](https://github.com/DanielQuiroz97/Floral_Microbiome/tree/main/Figures/jpeg) folder.
 
-Please, go to the [kronas](https://github.com/DanielQuiroz97/Floral_Microbiome/tree/main/Figures/Kronas) folder to check all the kronas plot created
+## Kronas plot
 
 The list of kronas created includes the following:
 

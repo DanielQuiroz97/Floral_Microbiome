@@ -12,13 +12,27 @@ the floral microbiome project lead by the Best *Juanito*.
 In this repository, you will find all the raw data, the code, and the
 final results of the project.
 
-# Useful figures
+# Useful resources
 
-## Kronas plot
+- [Raw
+  data](https://github.com/DanielQuiroz97/Floral_Microbiome/tree/main/Data)
+
+- [Analysis
+  notebook](https://github.com/DanielQuiroz97/Floral_Microbiome/blob/main/analysis.md)
+
+- [Figures
+  folder](https://github.com/DanielQuiroz97/Floral_Microbiome/tree/main/Figures)
+
+# Useful figures
 
 Please, go to the
 [kronas](https://github.com/DanielQuiroz97/Floral_Microbiome/tree/main/Figures/Kronas)
-folder to check all the kronas plot created
+folder to check all the kronas plot created, and for the rest of the
+plots, please visit the
+[jpeg](https://github.com/DanielQuiroz97/Floral_Microbiome/tree/main/Figures/jpeg)
+folder.
+
+## Kronas plot
 
 The list of kronas created includes the following:
 
