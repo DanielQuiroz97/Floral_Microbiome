@@ -5,6 +5,240 @@ Juan Quijia
 
 # Loading packages
 
+``` r
+library("phyloseq")
+library("ggplot2")
+library("dplyr")
+```
+
+    ## 
+    ## Attaching package: 'dplyr'
+
+    ## The following objects are masked from 'package:stats':
+    ## 
+    ##     filter, lag
+
+    ## The following objects are masked from 'package:base':
+    ## 
+    ##     intersect, setdiff, setequal, union
+
+``` r
+library("ape")
+```
+
+    ## 
+    ## Attaching package: 'ape'
+
+    ## The following object is masked from 'package:dplyr':
+    ## 
+    ##     where
+
+``` r
+library("DESeq2")
+```
+
+    ## Loading required package: S4Vectors
+
+    ## Loading required package: stats4
+
+    ## Loading required package: BiocGenerics
+
+    ## 
+    ## Attaching package: 'BiocGenerics'
+
+    ## The following objects are masked from 'package:dplyr':
+    ## 
+    ##     combine, intersect, setdiff, union
+
+    ## The following objects are masked from 'package:stats':
+    ## 
+    ##     IQR, mad, sd, var, xtabs
+
+    ## The following objects are masked from 'package:base':
+    ## 
+    ##     anyDuplicated, aperm, append, as.data.frame, basename, cbind,
+    ##     colnames, dirname, do.call, duplicated, eval, evalq, Filter, Find,
+    ##     get, grep, grepl, intersect, is.unsorted, lapply, Map, mapply,
+    ##     match, mget, order, paste, pmax, pmax.int, pmin, pmin.int,
+    ##     Position, rank, rbind, Reduce, rownames, sapply, setdiff, sort,
+    ##     table, tapply, union, unique, unsplit, which.max, which.min
+
+    ## 
+    ## Attaching package: 'S4Vectors'
+
+    ## The following objects are masked from 'package:dplyr':
+    ## 
+    ##     first, rename
+
+    ## The following object is masked from 'package:utils':
+    ## 
+    ##     findMatches
+
+    ## The following objects are masked from 'package:base':
+    ## 
+    ##     expand.grid, I, unname
+
+    ## Loading required package: IRanges
+
+    ## 
+    ## Attaching package: 'IRanges'
+
+    ## The following objects are masked from 'package:dplyr':
+    ## 
+    ##     collapse, desc, slice
+
+    ## The following object is masked from 'package:phyloseq':
+    ## 
+    ##     distance
+
+    ## The following object is masked from 'package:grDevices':
+    ## 
+    ##     windows
+
+    ## Loading required package: GenomicRanges
+
+    ## Loading required package: GenomeInfoDb
+
+    ## Loading required package: SummarizedExperiment
+
+    ## Loading required package: MatrixGenerics
+
+    ## Loading required package: matrixStats
+
+    ## 
+    ## Attaching package: 'matrixStats'
+
+    ## The following object is masked from 'package:dplyr':
+    ## 
+    ##     count
+
+    ## 
+    ## Attaching package: 'MatrixGenerics'
+
+    ## The following objects are masked from 'package:matrixStats':
+    ## 
+    ##     colAlls, colAnyNAs, colAnys, colAvgsPerRowSet, colCollapse,
+    ##     colCounts, colCummaxs, colCummins, colCumprods, colCumsums,
+    ##     colDiffs, colIQRDiffs, colIQRs, colLogSumExps, colMadDiffs,
+    ##     colMads, colMaxs, colMeans2, colMedians, colMins, colOrderStats,
+    ##     colProds, colQuantiles, colRanges, colRanks, colSdDiffs, colSds,
+    ##     colSums2, colTabulates, colVarDiffs, colVars, colWeightedMads,
+    ##     colWeightedMeans, colWeightedMedians, colWeightedSds,
+    ##     colWeightedVars, rowAlls, rowAnyNAs, rowAnys, rowAvgsPerColSet,
+    ##     rowCollapse, rowCounts, rowCummaxs, rowCummins, rowCumprods,
+    ##     rowCumsums, rowDiffs, rowIQRDiffs, rowIQRs, rowLogSumExps,
+    ##     rowMadDiffs, rowMads, rowMaxs, rowMeans2, rowMedians, rowMins,
+    ##     rowOrderStats, rowProds, rowQuantiles, rowRanges, rowRanks,
+    ##     rowSdDiffs, rowSds, rowSums2, rowTabulates, rowVarDiffs, rowVars,
+    ##     rowWeightedMads, rowWeightedMeans, rowWeightedMedians,
+    ##     rowWeightedSds, rowWeightedVars
+
+    ## Loading required package: Biobase
+
+    ## Welcome to Bioconductor
+    ## 
+    ##     Vignettes contain introductory material; view with
+    ##     'browseVignettes()'. To cite Bioconductor, see
+    ##     'citation("Biobase")', and for packages 'citation("pkgname")'.
+
+    ## 
+    ## Attaching package: 'Biobase'
+
+    ## The following object is masked from 'package:MatrixGenerics':
+    ## 
+    ##     rowMedians
+
+    ## The following objects are masked from 'package:matrixStats':
+    ## 
+    ##     anyMissing, rowMedians
+
+    ## The following object is masked from 'package:phyloseq':
+    ## 
+    ##     sampleNames
+
+``` r
+library("vegan")
+```
+
+    ## Loading required package: permute
+
+    ## Loading required package: lattice
+
+    ## This is vegan 2.6-4
+
+``` r
+#library("ggtext") # Needed to italize letter in plot
+library("tidyverse")
+```
+
+    ## ── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
+    ## ✔ forcats   1.0.0     ✔ stringr   1.5.0
+    ## ✔ lubridate 1.9.2     ✔ tibble    3.2.1
+    ## ✔ purrr     1.0.1     ✔ tidyr     1.3.0
+    ## ✔ readr     2.1.4
+
+    ## ── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
+    ## ✖ lubridate::%within%()    masks IRanges::%within%()
+    ## ✖ IRanges::collapse()      masks dplyr::collapse()
+    ## ✖ Biobase::combine()       masks BiocGenerics::combine(), dplyr::combine()
+    ## ✖ matrixStats::count()     masks dplyr::count()
+    ## ✖ IRanges::desc()          masks dplyr::desc()
+    ## ✖ tidyr::expand()          masks S4Vectors::expand()
+    ## ✖ dplyr::filter()          masks stats::filter()
+    ## ✖ S4Vectors::first()       masks dplyr::first()
+    ## ✖ dplyr::lag()             masks stats::lag()
+    ## ✖ BiocGenerics::Position() masks ggplot2::Position(), base::Position()
+    ## ✖ purrr::reduce()          masks GenomicRanges::reduce(), IRanges::reduce()
+    ## ✖ S4Vectors::rename()      masks dplyr::rename()
+    ## ✖ lubridate::second()      masks S4Vectors::second()
+    ## ✖ lubridate::second<-()    masks S4Vectors::second<-()
+    ## ✖ IRanges::slice()         masks dplyr::slice()
+    ## ✖ ape::where()             masks dplyr::where()
+    ## ℹ Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
+
+``` r
+library("microbiome")
+```
+
+    ## 
+    ## microbiome R package (microbiome.github.com)
+    ##     
+    ## 
+    ## 
+    ##  Copyright (C) 2011-2022 Leo Lahti, 
+    ##     Sudarshan Shetty et al. <microbiome.github.io>
+    ## 
+    ## 
+    ## Attaching package: 'microbiome'
+    ## 
+    ## The following object is masked from 'package:vegan':
+    ## 
+    ##     diversity
+    ## 
+    ## The following object is masked from 'package:SummarizedExperiment':
+    ## 
+    ##     coverage
+    ## 
+    ## The following object is masked from 'package:GenomicRanges':
+    ## 
+    ##     coverage
+    ## 
+    ## The following objects are masked from 'package:IRanges':
+    ## 
+    ##     coverage, transform
+    ## 
+    ## The following object is masked from 'package:S4Vectors':
+    ## 
+    ##     transform
+    ## 
+    ## The following object is masked from 'package:ggplot2':
+    ## 
+    ##     alpha
+    ## 
+    ## The following object is masked from 'package:base':
+    ## 
+    ##     transform
+
 # CCA analysis
 
 ## Preparing data
@@ -97,42 +331,42 @@ mod <- ordistep(mod0, scope = formula(CCA_analysis_raw), direction = "both", tra
     ## Start: comm_matrix ~ 1 
     ## 
     ##                   Df    AIC      F Pr(>F)   
-    ## + Lithium..ppm.    1 170.38 2.5493  0.005 **
-    ## + Potassium..ppm.  1 170.72 2.1955  0.005 **
-    ## + Phosphate..ppm.  1 170.59 2.3264  0.010 **
-    ## + Nitrate..ppm.    1 170.75 2.1673  0.010 **
-    ## + Magnesium..ppm.  1 170.78 2.1401  0.015 * 
-    ## + TN..mg.L.        1 170.70 2.2167  0.025 * 
-    ## + pH               1 171.07 1.8484  0.030 * 
-    ## + Chloride..ppm.   1 170.92 1.9990  0.065 . 
-    ## + Calcium..ppm.    1 171.24 1.6844  0.080 . 
-    ## + Sulfate..ppm.    1 172.00 0.9538  0.420   
-    ## + TOC..mg.L.       1 172.10 0.8548  0.550   
-    ## + Flouride..ppm.   1 172.14 0.8231  0.630   
+    ## + Phosphate..ppm.  1 170.59 2.3264  0.005 **
+    ## + Nitrate..ppm.    1 170.75 2.1673  0.015 * 
+    ## + TN..mg.L.        1 170.70 2.2167  0.020 * 
+    ## + Potassium..ppm.  1 170.72 2.1955  0.020 * 
+    ## + Magnesium..ppm.  1 170.78 2.1401  0.025 * 
+    ## + Lithium..ppm.    1 170.38 2.5493  0.030 * 
+    ## + pH               1 171.07 1.8484  0.040 * 
+    ## + Chloride..ppm.   1 170.92 1.9990  0.045 * 
+    ## + Calcium..ppm.    1 171.24 1.6844  0.050 * 
+    ## + Sulfate..ppm.    1 172.00 0.9538  0.455   
+    ## + TOC..mg.L.       1 172.10 0.8548  0.560   
+    ## + Flouride..ppm.   1 172.14 0.8231  0.620   
     ## + Sodium..ppm.     0 171.04                 
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Step: comm_matrix ~ Lithium..ppm. 
+    ## Step: comm_matrix ~ Phosphate..ppm. 
     ## 
-    ##                 Df    AIC      F Pr(>F)   
-    ## - Lithium..ppm.  1 171.04 2.5493   0.01 **
+    ##                   Df    AIC      F Pr(>F)   
+    ## - Phosphate..ppm.  1 171.04 2.3264  0.005 **
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
     ##                   Df    AIC      F Pr(>F)
-    ## + pH               1 170.80 1.3583  0.180
-    ## + TN..mg.L.        1 170.92 1.2540  0.190
-    ## + Phosphate..ppm.  1 171.02 1.1632  0.225
-    ## + Potassium..ppm.  1 170.90 1.2701  0.230
-    ## + Nitrate..ppm.    1 170.91 1.2597  0.230
-    ## + Magnesium..ppm.  1 170.99 1.1934  0.265
-    ## + Chloride..ppm.   1 171.05 1.1356  0.280
-    ## + TOC..mg.L.       1 171.27 0.9447  0.470
-    ## + Calcium..ppm.    1 171.22 0.9853  0.485
-    ## + Flouride..ppm.   1 171.31 0.9057  0.520
-    ## + Sulfate..ppm.    1 171.47 0.7691  0.720
-    ## + Sodium..ppm.     0 170.38
+    ## + Lithium..ppm.    1 171.02 1.3583  0.135
+    ## + TOC..mg.L.       1 171.13 1.2556  0.165
+    ## + Sulfate..ppm.    1 171.14 1.2527  0.195
+    ## + Chloride..ppm.   1 171.32 1.0893  0.195
+    ## + Calcium..ppm.    1 171.35 1.0665  0.290
+    ## + Flouride..ppm.   1 171.48 0.9497  0.455
+    ## + pH               1 171.51 0.9213  0.465
+    ## + Magnesium..ppm.  1 171.65 0.7969  0.645
+    ## + Potassium..ppm.  1 171.61 0.8355  0.680
+    ## + TN..mg.L.        1 171.74 0.7214  0.735
+    ## + Nitrate..ppm.    1 171.72 0.7366  0.755
+    ## + Sodium..ppm.     0 170.59
 
 ``` r
 plot(mod)
@@ -167,7 +401,7 @@ adonis2(comm_matrix ~ pH + TOC..mg.L.+ TN..mg.L.+
     ## 
     ## adonis2(formula = comm_matrix ~ pH + TOC..mg.L. + TN..mg.L. + Phosphate..ppm. + Potassium..ppm. + Magnesium..ppm. + Calcium..ppm. + Sulfate..ppm. + Sodium..ppm. + Lithium..ppm. + Flouride..ppm. + Chloride..ppm. + Nitrate..ppm., data = env_data, method = "bray", sqrt.dist = TRUE, by = NULL)
     ##          Df SumOfSqs      R2      F Pr(>F)
-    ## Model    12  1.76639 0.78401 1.2099   0.12
+    ## Model    12  1.76639 0.78401 1.2099  0.122
     ## Residual  4  0.48664 0.21599              
     ## Total    16  2.25303 1.00000
 
@@ -186,7 +420,7 @@ adonis2(comm_matrix ~ Sulfate..ppm.+ Flouride..ppm. + Phosphate..ppm.,
     ## 
     ## adonis2(formula = comm_matrix ~ Sulfate..ppm. + Flouride..ppm. + Phosphate..ppm., data = env_data, method = "bray", sqrt.dist = TRUE, by = NULL)
     ##          Df SumOfSqs      R2      F Pr(>F)  
-    ## Model     3  0.50024 0.22203 1.2367  0.087 .
+    ## Model     3  0.50024 0.22203 1.2367  0.093 .
     ## Residual 13  1.75280 0.77797                
     ## Total    16  2.25303 1.00000                
     ## ---
@@ -208,7 +442,7 @@ adonis2(comm_matrix ~ Sulfate..ppm.+ Flouride..ppm.,
     ## 
     ## adonis2(formula = comm_matrix ~ Sulfate..ppm. + Flouride..ppm., data = env_data, method = "bray", sqrt.dist = TRUE, by = NULL)
     ##          Df SumOfSqs      R2      F Pr(>F)
-    ## Model     2  0.25393 0.11271 0.8892   0.67
+    ## Model     2  0.25393 0.11271 0.8892  0.681
     ## Residual 14  1.99910 0.88729              
     ## Total    16  2.25303 1.00000
 
@@ -223,7 +457,7 @@ adonis2(comm_matrix ~ Phosphate..ppm.,
     ## 
     ## adonis2(formula = comm_matrix ~ Phosphate..ppm., data = env_data, method = "bray", sqrt.dist = TRUE, by = NULL)
     ##          Df SumOfSqs      R2      F Pr(>F)  
-    ## Model     1  0.22856 0.10145 1.6935  0.015 *
+    ## Model     1  0.22856 0.10145 1.6935  0.019 *
     ## Residual 15  2.02447 0.89855                
     ## Total    16  2.25303 1.00000                
     ## ---
@@ -240,7 +474,7 @@ adonis2(comm_matrix ~ Phosphate..ppm.+ Sulfate..ppm.,
     ## 
     ## adonis2(formula = comm_matrix ~ Phosphate..ppm. + Sulfate..ppm., data = env_data, method = "bray", sqrt.dist = TRUE, by = NULL)
     ##          Df SumOfSqs      R2      F Pr(>F)  
-    ## Model     2  0.37879 0.16812 1.4147  0.037 *
+    ## Model     2  0.37879 0.16812 1.4147  0.038 *
     ## Residual 14  1.87425 0.83188                
     ## Total    16  2.25303 1.00000                
     ## ---
@@ -299,7 +533,7 @@ anova(CCA_analysis_final)
     ## 
     ## Model: cca(formula = comm_matrix ~ Phosphate..ppm. + Sulfate..ppm., data = env_data)
     ##          Df ChiSquare      F Pr(>F)  
-    ## Model     2  0.069674 1.8092   0.02 *
+    ## Model     2  0.069674 1.8092  0.024 *
     ## Residual 14  0.269582                
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
@@ -318,8 +552,8 @@ anova(CCA_analysis_final, by='term', permutations = 9000)
     ## 
     ## Model: cca(formula = comm_matrix ~ Phosphate..ppm. + Sulfate..ppm., data = env_data)
     ##                 Df ChiSquare      F   Pr(>F)   
-    ## Phosphate..ppm.  1  0.045552 2.3656 0.004555 **
-    ## Sulfate..ppm.    1  0.024122 1.2527 0.205088   
+    ## Phosphate..ppm.  1  0.045552 2.3656 0.004222 **
+    ## Sulfate..ppm.    1  0.024122 1.2527 0.210977   
     ## Residual        14  0.269582                   
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
@@ -338,8 +572,8 @@ anova(CCA_analysis_final, by='axis', permutations = 9000)
     ## 
     ## Model: cca(formula = comm_matrix ~ Phosphate..ppm. + Sulfate..ppm., data = env_data)
     ##          Df ChiSquare      F  Pr(>F)  
-    ## CCA1      1  0.053387 2.7725 0.01522 *
-    ## CCA2      1  0.016288 0.8459 0.57760  
+    ## CCA1      1  0.053387 2.7725 0.01644 *
+    ## CCA2      1  0.016288 0.8459 0.57260  
     ## Residual 14  0.269582                 
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
