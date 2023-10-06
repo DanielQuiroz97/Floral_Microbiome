@@ -1,0 +1,264 @@
+---
+title: "Microbiome analysis - Substrate microbiome - CCA"
+author: "Juan Quijia"
+date: "2023-07-10"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Loading packages
+```{r packages, include=F}
+library("phyloseq")
+library("ggplot2")
+library("dplyr")
+library("ape")
+library("DESeq2")
+library("vegan")
+#library("ggtext") # Needed to italize letter in plot
+library("tidyverse")
+library("microbiome")
+
+#load("6_CCA_pH.RData")
+```
+
+# CCA analysis
+
+## Preparing data
+
+In this step, we are going to use the top 5 phyla
+
+```{r}
+## Extracting the community mattrix
+floral_micro_relat<- readRDS('3_Final_data/phyloseq_data_top5.rds')
+micro_metadata<-as(sample_data(floral_micro_relat),"data.frame")
+
+comm_matrix =  as(otu_table(floral_micro_relat), "matrix")
+comm_matrix = t(comm_matrix)
+comm_matrix = as.data.frame(comm_matrix)
+
+##Extracting the taxonomic matrix from the Phyloseq object
+Taxonomy_id = as(tax_table(floral_micro_relat), "matrix")
+Taxonomy_id = as.data.frame(Taxonomy_id)
+
+## Preparing environmental data
+env_data <- micro_metadata %>% 
+  select(pH, EC..us.cm., TOC..mg.L., TN..mg.L., Sodium..ppm., Lithium..ppm.,
+         Potassium..ppm., Magnesium..ppm., Calcium..ppm., Flouride..ppm.,
+         Chloride..ppm., Nitrate..ppm., Sulfate..ppm., Phosphate..ppm.,
+         ShootDW, TotalShoot, RootTOShoot, RootDW) %>% 
+  mutate_all(~replace_na(., 0))
+
+# Assigning names to the genera
+names(comm_matrix) <- Taxonomy_id$Genus
+
+```
+
+### Running CCA analysis
+
+According to \`?vegan::vif.cca\`, variables produce variance inflation, which will decrease the sifnificance
+
+of the analysis. As a rule of thumb, values over 10 indicate redundant constraints. Therefore,
+
+Variables over 11, will be removed from the analysis.
+
+```{r}
+CCA_analysis_raw <- cca(comm_matrix ~ pH + TOC..mg.L. + 
+                          #TN..mg.L. +  # TN highly correlate with Nitrate                  
+                          #Potassium..ppm. + Magnesium..ppm. + Calcium..ppm. + # K, Ca, Mg have n.a. 
+                          Flouride..ppm. + Chloride..ppm. + Nitrate..ppm. +
+                          Sulfate..ppm. + Phosphate..ppm.,
+                        data = env_data)
+CCA_analysis_raw 
+```
+
+```{r}
+data.frame(Values = vif.cca(CCA_analysis_raw)) %>% filter(Values < 11)
+```
+
+## Selecting environmental variables
+
+The previous section pointed out five variables with low colinearity what we can include in a cleaner
+CCA analysis.
+
+```{r}
+
+# Creating a null model
+mod0 <- cca(comm_matrix ~ 1, data = env_data)
+mod <- ordistep(mod0, scope = formula(CCA_analysis_raw), direction = "both", trace = 1 )
+```
+
+```{r}
+plot(mod)
+text(mod, "sites", col = "blue")
+```
+
+### PERMANOVA
+
+PERMANOVA with the square root of dissimilarities (Bray-Curtis distances). Tests for the significance of the different terms of the model (the environmental variables).
+
+First, we test all the variables to have an starting point for comparison with a p-value of 0.159
+
+```{r}
+adonis2(comm_matrix ~pH + TOC..mg.L. + 
+                          #TN..mg.L. +  # TN highly correlate with Nitrate                  
+                          #Potassium..ppm. + Magnesium..ppm. + Calcium..ppm. + # K, Ca, Mg have n.a. 
+                          Flouride..ppm. + Chloride..ppm. + #Nitrate..ppm. +   # Nitrate 
+                          Sulfate..ppm. + Phosphate..ppm.,
+        data = env_data, method = 'bray', by = NULL, sqrt.dist = TRUE)
+```
+
+Now, in the previous section, 3 variables showed low collinearity (EC, TOC, ROOT2SHOOT) and TOC showedhad a low p-value. Therefore, the best variables to create a new robust model are these three.
+
+```{r}
+adonis2(comm_matrix ~ pH + TOC..mg.L. + 
+                          #TN..mg.L. + Potassium..ppm. + Magnesium..ppm. + 
+                          #Calcium..ppm. + 
+                          Flouride..ppm. + Chloride..ppm. + #Nitrate..ppm. + # Not selected in above steps
+                          Sulfate..ppm. + Phosphate..ppm.
+        ,data = env_data,
+        method = 'bray', by = NULL, sqrt.dist = TRUE)
+```
+
+Surprisingly, the p-value increases which tell us the new model does not outperforms the initial model.
+
+After some testing, these are the three best escenarios
+
+```{r}
+adonis2(comm_matrix ~ Chloride..ppm. + Flouride..ppm. + Phosphate..ppm., data = env_data, method = 'bray', by = NULL, sqrt.dist = TRUE)
+```
+
+```{r}
+adonis2(comm_matrix ~ Phosphate..ppm. + Chloride..ppm. , 
+        data = env_data, method = 'bray', by = NULL, sqrt.dist = TRUE)
+```
+
+```{r}
+adonis2(comm_matrix ~ Phosphate..ppm., 
+        data = env_data, method = 'bray', by = NULL, sqrt.dist = TRUE)
+```
+
+### Final CCA
+
+From the last part, we did find significant variables.  
+
+```{r}
+CCA_analysis_final <- cca(comm_matrix ~ pH + TOC..mg.L. + 
+                          #TN..mg.L. +  # TN highly correlate with Nitrate                  
+                          #Potassium..ppm. + Magnesium..ppm. + Calcium..ppm. + # K, Ca, Mg have n.a. 
+                          Flouride..ppm. + Chloride..ppm. + #Nitrate..ppm. + #Not selected in above steps   
+                          Sulfate..ppm. + Phosphate..ppm.,
+                          data = env_data)
+#summary(CCA_analysis_final)
+```
+
+### CCA diagnostics
+
+Here, we will diagnose the goodness of the fit of the environmental variables on the CCA. The previous analysis did not accounted for the ASV distribution on a CCA space. Therefore, in this section, we will evaluate the the goodness of the env variables on the CCA.
+
+```{r}
+anova(CCA_analysis_final)
+```
+
+Here, we can see that our cca model is statistical significant, which means that there are environmental variables that drive differences.
+
+```{r cache=TRUE}
+anova(CCA_analysis_final, by='term', permutations = 9000)
+```
+
+Here, we can see that pH, TOC, Fl, and Cl are the variables that cause the differentiation.
+
+```{r cache=TRUE}
+anova(CCA_analysis_final, by='axis', permutations = 9000)
+```
+
+According to this model, the CCA dimensions do explain the differences according the env variables. 
+
+```{r}
+ordiplot(CCA_analysis_final)
+```
+
+```{r warning=FALSE}
+cca_coordinates <- scores(CCA_analysis_final)
+# Sample table
+cca_samples <- cca_coordinates$sites %>% # Extracting the samples CCA coordinates
+  as.data.frame %>% mutate(Samples = rownames(.))
+# Adding metadata
+sample_metadt <- micro_metadata %>% 
+  select(Samples = NAME, Treatment, Dose, Time, Block) %>% 
+  mutate(Treatment = factor(Treatment), Block = factor(Block), Time = factor(Time))
+
+# Joining tables
+cca_samples <- left_join(cca_samples, sample_metadt)
+cca_samples$Treatment <- factor(cca_samples$Treatment,
+                                levels=c("2_25","2_100","2_200"),
+                                labels = c("25","100","200"))
+
+# ASV table
+#cca_asv <- cca_coordinates$species %>% as.data.frame %>% 
+ # mutate(Genus = rownames(.))
+#cca_asv_deseq2 <- left_join(sig_dif_asv, cca_asv)
+
+# Env data
+cca_env <- cca_coordinates$biplot %>% as.data.frame() %>% 
+  mutate(Variable = rownames(.)) %>%
+  mutate(Label = c("pH","TOC","Fluoride","Chloride","Sulfate","Phosphate"))
+```
+```{r}
+# Base plot
+cca_plot <- ggplot(cca_samples, aes(CCA1,CCA2)) +
+  #lims(x = c(-5, 5), y = c(-7, 5)) +
+  geom_point( aes(shape=Time,color = Dose), size = 4) +
+  #ggrepel::geom_text_repel(aes(label = Samples)) +
+  #ggsci::scale_color_startrek() +
+  #theme_void() +
+  #theme(legend.position = c(0.1, 0.75), 
+       # legend.background = element_rect(fill = "white", color = "white")) +
+  #theme(panel.grid = element_blank(), 
+        #panel.border = element_rect(fill= "transparent")) +
+  geom_hline(yintercept = 0, lty = 2, color = "black", alpha = 0.9) +
+  geom_vline(xintercept = 0, lty = 2, color = "black", alpha = 0.9) +
+  # Adding env variables
+  geom_segment(data = cca_env, aes(x = 0, y = 0,
+                                   xend = 2*CCA1, yend = 2*CCA2),
+               arrow = arrow(length =  unit(0.2, "cm")), 
+               color = "red", linetype = 1) +
+  ggrepel::geom_text_repel(data = cca_env,# box.padding = 0.5,
+                           aes( 2*CCA1, 2*CCA2, label = Label),
+                           color = "black") +
+  scale_shape_discrete("Phenological\nstage", labels = c("Week_4"="Budding", "Week_8"="Flowering"))+
+  scale_color_discrete("Fertilizer\nlevel\n(mg/L N)")
+  # Adding all ASV and sig different ASV
+  #geom_point(data = cca_asv, aes(CCA1, CCA2), shape = 3, alpha = 0.2) +
+  #geom_point(data = cca_asv_deseq2, aes(CCA1, CCA2), shape = 3, color = "red") +
+  #ggrepel::geom_text_repel(data = cca_asv_deseq2, box.padding = 0.45,
+                       #    aes(CCA1, CCA2, label = Genus))
+
+#The constrained proportion is the proportion of variance the species by site matrix is explained by the explanatory variables 
+RsquareAdj(CCA_analysis_final)$r.squared # Contrained proportion
+#Proportion of variance explained by the RDA axes from the explained variance of the model.
+CCA_analysis_final$CCA$eig/sum(CCA_analysis_final$CCA$eig)*100
+summary(CCA_analysis_final)
+
+#Accumulated constrained eigenvalues
+#Importance of components:
+cca1_proportion = 59.70
+cca2_proportion = 17.21
+
+cca_plot <- cca_plot +   xlab(paste("CCA1 (",cca1_proportion,"%)")) +  
+          ylab(paste("CCA2 (",cca2_proportion,"%)")) +
+          theme(text = element_text(size=10), axis.text.x = element_text(angle = 360, vjust = 0.5, hjust=1)) 
+cca_plot
+#https://fukamilab.github.io/BIO202/06-B-constrained-ordination.html
+#Additional, you can not compute an adjusted R2 (i.e. you have a biased measure of explained variation).
+
+```
+```{r eval=FALSE, include=FALSE}
+ggsave(filename = "Figures/6_CCA_pH.jpg", 
+       plot = cca_plot, dpi = 2100, width = 7, height = 4, units = "in")
+```
+```{r}
+save.image(file = "6_CCA_pH.RData")
+```

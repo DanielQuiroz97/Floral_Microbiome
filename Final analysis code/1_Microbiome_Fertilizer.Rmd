@@ -1,0 +1,287 @@
+---
+title: "Microbiome analysis - Substrate microbiome"
+author:
+date: "2023-07-10"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages
+```{r Packages, include=FALSE}
+library("phyloseq")
+library("ggplot2")
+library("dplyr")
+library("ape")
+library("DESeq2")
+library("vegan")
+library("ggtext") # Needed to for italic font
+library("tidyverse")
+library("microbiome")
+
+load("1_Microbiome.RData")
+```
+
+## Load the data
+```{r}
+otu = read.table("1_Tables/asvtable-processed-absolute.tsv",row.names=1,header=T)
+otu = otu[,c(1:30,33,47,52,61,66,72,73)] #Removed samples from LC_project_2
+taxa= read.csv("1_Tables/asv-taxonomy-mapping.csv",row.names=1,header=T) #.tsv and .csv files contain same information
+sample= read.csv("1_Tables/sample_metadata_fertilizer.csv",row.names=1,header=T)
+  sample = sample[-c(5),] #Sample L5 was not sequenced (LP1:row37,LP2:row38)
+  sample$Treatment<-as.factor(sample$Treatment)
+  sample$Dose<-as.factor(sample$Dose)
+  sample$Time<-as.factor(sample$Time)
+  sample$Block<-as.factor(sample$Block)
+  str(sample)
+#treefile <- read.tree("dada_tree.tre")
+
+otu.print <- otu # Removing sequence rownames for display only
+rownames(otu.print) <- NULL
+str(otu.print)
+
+taxa.print <- taxa # Removing sequence rownames for display only
+rownames(taxa.print) <- NULL
+str(taxa.print)
+```
+## Create Phyloseq file
+```{r}
+otumat <- as.matrix(otu)   #this should be as matrix file
+taxamat <- as.matrix(taxa) #this should be as matrix file
+
+OTU = otu_table(otumat, taxa_are_rows = TRUE)
+TAX = tax_table(taxamat)
+SAMPLE = sample_data(sample)
+
+setdiff(taxa_names(OTU), taxa_names(TAX))
+ps_raw <- phyloseq(OTU,TAX,SAMPLE) 
+
+print("The phyloseq object ps_raw can be moved to ASV cleaning")
+ps_raw
+
+print("Number of ASVs with total count > 0 in the 35 substrate samples") #11 ASVs from synthetic communities (LP1-LP2)
+count(taxa_sums(ps_raw) > 0) - 11
+
+print("Number of ASVs with total count == 0")
+count(taxa_sums(ps_raw) == 0)
+
+print("Number of reads in the 35 substrate samples") 
+sum(sample_sums(ps_raw))-66510-71147 #LP1=66510  LP 2=71147 
+```
+
+```{r}
+ #Note that the taxonomic levels and metadata are not named. We can do so by assigning column names:
+colnames(tax_table(ps_raw))=c("Kingdom","Phylum","Class","Order","Family","Genus","Species")
+#head(otu_table(ps))
+#head(tax_table(ps))
+#head(phy_tree(ps))
+head(tax_table(ps_raw))
+```
+
+## Modify taxonomy and unclassified text representation 
+```{r}
+tax_table(ps_raw)[, colnames(tax_table(ps_raw))] <- gsub(tax_table(ps_raw)[, colnames(tax_table(ps_raw))],
+                                                 pattern = "[a-z]__", replacement = "")
+tax_table(ps_raw)[, colnames(tax_table(ps_raw))] <- gsub(tax_table(ps_raw)[, colnames(tax_table(ps_raw))],
+                                                 pattern = "^$", replacement = "Unclassified")
+head(tax_table(ps_raw))
+```
+## Filter out unclassified at Kindom level, Archea, mitochondria and chloroplast
+```{r}
+ps_filter <- subset_taxa(ps_raw, 
+                  Family  != "Mitochondria" &
+                    Order   != "Chloroplast" & 
+                      Kingdom != "Unclassified" &  
+                        Kingdom != "Archaea" &
+                          Phylum != "Unclassified"
+                            )
+ps_filter
+```
+## Removing singletons
+##ASVs with only 1 count are considered chimeric and therefore, are removed
+```{r}
+print("Number of ASV with 0 reads in all samples")
+  sum(taxa_sums(ps_filter) == 0)
+
+print("Number of ASV with only 1 read in all samples")
+  sum(taxa_sums(ps_filter) == 1) 
+
+print("Number of ASV with at least 1 read in 1 sample")
+  sum(taxa_sums(ps_filter) > 0) 
+```
+
+
+```{r}
+ps_filter_s <- prune_taxa(taxa_sums(ps_filter) > 5, ps_filter)
+ps_filter_s
+```
+
+```{r}
+#Change DNAsequences id by a short ID like ASV1, ASV2...
+ps <- ps_filter_s
+dna <- Biostrings::DNAStringSet(taxa_names(ps))
+names(dna) <- taxa_names(ps)
+ps <- merge_phyloseq(ps, dna) #sample name associated with dna seq ID
+taxa_names(ps) <- paste0("ASV", seq(ntaxa(ps)))
+head(tax_table(ps))
+```
+
+```{r}
+# Sequencing depth
+SeqDepth = colSums(otu_table(ps))
+SeqDepth 
+# Add depth to the metadata
+sample_data(ps)$SeqDepth <- SeqDepth
+
+sample_data(ps) %>% 
+  ggplot(aes(reorder(NAME,SeqDepth), SeqDepth,fill = factor(Treatment))) +
+  geom_col() + theme_classic() + theme(axis.text.x = element_text(size = 12, angle = 90, vjust = 0.5, hjust = 1)) + 
+  labs(fill = "Treatment\nFertilizer (ppm)",
+       x = "Sample Name", y = "Secuencing Depth",
+       title = "Secuensing depth/sample")
+```
+
+## Create an additional phyloseq file with only SynCom controls for analysis
+```{r}
+syncom<- subset_samples(ps,Experiment=="SynCom")# Create a file to look at syncom controls 2_syncom.R
+#saveRDS(syncom, file = file.path('Clean_table/symcom_control_data.rds'))
+syncom
+```
+## Remove SynComs controls
+```{r}
+#The file contain data from two separate experiment, I separated them here:#####
+ps <- prune_samples(sample_names(ps) != "LP1" & sample_names(ps) != "LP2", ps) #Remove mock samples
+ps <- prune_taxa(taxa_sums(ps) > 5, ps)
+ps
+print("Number of reads in the 35 substrate samples") 
+sum(sample_sums(ps))
+```
+## SHARED and UNIQUE ASVs - Venn Diagram
+```{r Venn Diagram_microeco}
+library("file2meco")
+library("microeco")
+# Transform phyloseq file to microeco file
+micro_ps <- phyloseq2meco(ps)
+
+# Merge samples as one community for each group
+levels(micro_ps$sample_table$Treatment) <- list(Budding_100 = "1_100", Budding_200 = "1_200", Budding_25 = "1_25", Flowering_100 = "2_100", Flowering_200 =  "2_200", Flowering_25 = "2_25")
+micro_ps <- micro_ps$merge_samples(use_group = "Treatment")
+
+# micro_ps is a new microtable object
+# create trans_venn object
+ps_venn <- trans_venn$new(micro_ps, ratio = NULL)
+plot_ps_venn<-ps_venn$plot_venn(petal_center_size = 25, petal_r = 1, petal_a = 3, petal_move_xy = 3,petal_move_k =3, petal_color_center = "#BEBADA", text_size = 6,
+  text_name_size = 5,)
+ggsave(filename = "Figures/1_Petal_plot.jpg",  plot = plot_ps_venn, 
+       width = 12, height = 12, units = "cm", dpi = 2000)
+plot_ps_venn
+```
+## SAVE DATA IN PHYLOSEQ FORMAT
+```{r}
+print("The phyloseq object ps is ready to continue the analysis. A back up was saved as phyloseq_data.rds")
+ps
+#saveRDS(ps, file = file.path('3_Final_data/phyloseq_data.rds'))
+```
+
+## Upload phyloseq file to continue analysis
+```{r}
+#Upload phyloseq_data.rds file 
+ps<- readRDS('3_Final_data/phyloseq_data.rds')
+ps
+```
+## Rarefaction
+##Count the number of reads per sample
+```{r}
+
+      print("Sequencing depth")
+      sums <- sample_sums(ps)
+      sums[order(sums)]
+      print("Lowest total reads-count")
+      min(sums)
+      print("The sample with lowest read-count")
+      names(sums[order(sums)][1])
+
+```
+## Plot the rarefaction curve for the observed ASVs 
+This is a way to check how was the richness captured by sequencing effort
+https://www.sciencedirect.com/science/article/pii/S2001037021005456
+```{r}
+rarefaction_data<-as.data.frame(otu_table(ps))
+rafefaction_curve<-rarecurve(t(rarefaction_data), step=50, cex=0.6, col = "black", tidy=TRUE)
+    # Merge with metadata.
+    xy <- dplyr::left_join(rafefaction_curve, sample_data(ps), by = c("Site" = "NAME"))
+    levels(xy$Time) <- list(Budding = "Week_4",Flowering = "Week_8")
+    levels(xy$Dose) <- list("Low (25 mg/L N)" = "25","Optimum (100 mg/L N)" = "100", "High (200 mg/L N)"="200")
+    # Plot Rarefaction curve
+    ggplot(xy, aes(x = Sample, y = Species, color = Site)) +
+      theme_bw() + 
+      scale_color_discrete(guide = "none") +  # turn legend on or off
+      geom_line() +
+      facet_wrap(~Time*Dose) + 
+      geom_vline(xintercept=12617, color= "red", linetype='dashed') + 
+      geom_vline(xintercept=31041, color= "blue", linetype='dashed') + 
+      labs(title="Rarefaction curves") + xlab("Sequenced Reads") + ylab('ASVs Detected')
+    ggsave("Figures/1_rafefaction_curve.jpg", width = 7,
+           height = 5,
+           units = "in",
+           dpi = 2100)
+```
+
+```{r}
+#ps.rarefied = rarefy_even_depth(ps, rngseed=2023, sample.size=31041, replace=F)
+#ps.rarefied = rarefy_even_depth(ps, rngseed=123, sample.size=min(sample_sums(ps)), replace=F)
+
+#saveRDS(ps.rarefied, file = file.path('phyloseq_data_rarefy.rds'))
+ps.rarefied<- readRDS('3_Final_data/phyloseq_data_rarefy.rds')
+```
+# Fraction of reads that can be assigned to a taxonomic level (% all reads from all samples)
+```{r}
+
+    readsPerSample <- colSums(otu_table(ps.rarefied))
+    unclassified <- as.data.frame(tax_table(ps.rarefied))
+    unclassified <- unclassified !="Unclassified" 
+    unclassified[unclassified == "Unclassified"] <- 0
+    
+  fractionReadsAssigned <- list()           
+      for(taxonomy in colnames(unclassified)) {
+        fractionReadsAssigned[[taxonomy]] <- as.matrix(colSums(otu_table(ps.rarefied) * unclassified[,taxonomy]) / readsPerSample)
+        }
+      
+    fractionReadsAssigned.L <- reshape2::melt(fractionReadsAssigned)
+    colnames(fractionReadsAssigned.L) = c("Sample_ID","Var2","fractionReadsAssigned","taxlevel")
+    fractionReadsAssigned.L <- data.frame(fractionReadsAssigned.L, sample_data(ps.rarefied)[fractionReadsAssigned.L$Sample_ID,])
+    #fractionReadsAssigned.L <- dplyr::left_join(fractionReadsAssigned.L, sample_data(ps.rarefied)[,1:7], by = c("Sample_ID" = "NAME"))
+    fractionReadsAssigned.L$taxlevel = factor(fractionReadsAssigned.L$taxlevel, levels=c("Kingdom","Phylum","Class","Order","Family","Genus","Species"))
+    
+    levels(fractionReadsAssigned.L$Treatment)<- list(Budding_25 = "1_25", Budding_100 = "1_100", Budding_200 = "1_200", Flowering_25 = "2_25", Flowering_100 = "2_100", Flowering_200 =  "2_200")
+    
+    # Boxplot, fraction assigned by SampleType
+fraction <- ggplot(fractionReadsAssigned.L, aes(y = fractionReadsAssigned, x = taxlevel, fill=Treatment)) +
+      theme_bw() +
+      geom_boxplot(aes(color=Treatment), outlier.shape=NA, alpha=0.6) +  
+      ylab("Fraction of Reads Classified") +
+      xlab("Taxonomic level") +
+      guides(fill = guide_legend(title = "Phenological stage_\nFertilizer dose (mg/L N)"),color = guide_legend(title = "Phenological stage_\nFertilizer dose (mg/L N)")) +
+      theme(legend.position="right", legend.title = element_text(size=9)) +
+      #ggtitle("Fraction of reads identified by taxonomic level") +
+      geom_point(position=position_jitterdodge(jitter.width=0, jitter.height=0), size=.1)
+    ggsave(plot = fraction, filename = "Figures/1_Fraction of reads identified by taxonomic level.jpg", width = 7,
+           height = 6,
+           units = "in",
+           dpi = 2100)
+fraction
+
+```
+
+```{r}    
+    top_taxa<-list()
+    for(taxa in colnames(tax_table(ps.rarefied))){
+      top_taxa[[taxa]]<-top_taxa(aggregate_taxa(ps.rarefied, level=taxa, verbose = FALSE),n=10)
+    }
+     top_taxa
+save.image(file = "1_Microbiome.RData")
+```
+
+### Continue to file Barplot to make the graph using ps.rarefied object ####

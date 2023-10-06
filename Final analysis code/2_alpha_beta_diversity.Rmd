@@ -1,0 +1,236 @@
+---
+title: "Microbiome analysis - Substrate microbiome - alpha_beta_diversity"
+author: 
+date: "2023-07-07"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r alpha_microeco}
+library(file2meco)
+library(microeco)
+library(writexl)
+library(ggh4x)
+library(vegan)
+library(tidyverse)
+library(phyloseq)
+library("ggtext")
+
+#load("2_Alpha_Beta_Div.RData")
+```
+## Load data
+```{r}
+
+ps.rarefied<- readRDS('3_Final_data/phyloseq_data_rarefy.rds')
+
+physeq <- phyloseq2meco(ps.rarefied)
+physeq
+physeq$cal_betadiv(unifrac = F) #create beta diversity tables
+physeq
+```
+## Community composition - Phylum level
+```{r cars}
+compo_1 <- trans_abund$new(dataset = physeq, taxrank = "Phylum", ntaxa = 8)
+levels(compo_1$data_abund$Time) <- list(Budding = "Week_4",Flowering = "Week_8")
+levels(compo_1$data_abund$Dose) <- list("Low (25 mg/L N)" = "25","Optimum (100 mg/L N)" = "100", "High (200 mg/L N)"="200")
+
+g1 <- compo_1$plot_bar(others_color = "grey70", facet = c("Dose", "Time"), xtext_keep = T, legend_text_italic = FALSE)
+
+g1.1 <- g1 + theme(text = element_text(size=11,color = "black"), axis.title.y = element_text(size = 15,color = "black"), axis.text.x = element_text(size = 10, angle = 90, vjust = 0.5, hjust=1),axis.line.y =element_line(color="black")) + xlab("Sample ID")
+                 
+    ggsave(plot=g1.1, filename="Figures/2a_bar_plot_phyla.jpg", 
+           width = 7, height = 5,
+           units = "in",
+           dpi = 2100)
+g1.1
+```
+
+## Community composition - Genus level    
+```{r}
+compo_2 <- trans_abund$new(dataset = physeq, taxrank = "Genus", ntaxa = 10)
+levels(compo_2$data_abund$Time) <- list(Budding = "Week_4",Flowering = "Week_8")
+levels(compo_2$data_abund$Dose) <- list("Low (25 mg/L N)" = "25","Optimum (100 mg/L N)" = "100", "High (200 mg/L N)"="200")
+
+g2 <- compo_2$plot_bar(others_color = "grey70", facet = c("Dose", "Time"), xtext_keep = T, legend_text_italic = TRUE)
+g2.1<- g2  + theme(text = element_text(size=11,color = "black"), 
+                   axis.title.y = element_text(size = 15,color = "black"), 
+                   axis.text.x = element_text(size = 10, angle = 90, vjust = 0.5, hjust=1),
+                   axis.line.y =element_line(color="black")) + 
+              xlab("Sample ID")
+
+ggsave(plot=g2.1,filename = "Figures/2b_bar_plot_genus.jpg", 
+        width = 7,height = 5,
+           units = "in",
+           dpi = 2100)
+g2.1
+```
+
+#Alpha Diversity
+```{r alpha_microeco_statistical_testing}
+
+t1 <- trans_alpha$new(dataset = physeq, group = "Treatment")
+# return t1$data_stat
+head(t1$data_alpha)
+head(t1$data_stat)
+
+t1$cal_diff(method = "KW")
+# return t1$res_diff
+t1$res_diff
+save_alpha<-t1$res_diff
+write_xlsx(save_alpha,"Results/2a_alpha_diversity.xlsx")
+
+```
+##Plot Alpha diversity
+```{r alpha_phyloseq}
+
+ps.rarefied.fert <- ps.rarefied # Complete data set to compare among Times
+
+#Visualize alpha-diversity:
+
+data_richness<-estimate_richness(ps.rarefied.fert, measures=c("Observed", "Shannon", "InvSimpson"))
+data_richness$Evenness <- data_richness$Shannon/log(data_richness$Observed) 
+alpha_diversity<-(merge(sample_data(ps.rarefied ),data_richness,by="row.names"))
+alpha_diversity_long<-pivot_longer(alpha_diversity,c("Observed", "Shannon", "InvSimpson", "Evenness"),
+                                   names_to="AlphaDiversity",
+                                   values_to="AlphaDiversityMeasure")
+
+        alpha_diversity_long$Time<-factor(alpha_diversity_long$Time,levels=c("Week_4","Week_8"), label=c("Budding","Flowering"))
+        levels(alpha_diversity_long$Time)
+        alpha_diversity_long$Treatment<-factor(alpha_diversity_long$Treatment,levels=c("1_25","1_100","1_200","2_25","2_100","2_200"))
+        levels(alpha_diversity_long$Treatment)
+        
+plot_alpha <- alpha_diversity_long %>% 
+          ggplot(aes(x=Treatment, y=AlphaDiversityMeasure)) + 
+          geom_boxplot(aes(color=Time),size = 1)  + 
+          facet_wrap(~AlphaDiversity, ncol = 2, scales= "free_y") + 
+          ylab("") +
+          #scale_color_discrete(scale_name = "Phenological stage", breaks = c("1","2"), labels=c("Budding","Flowering")) +
+          scale_x_discrete("Fertilizer rate (mg/L)", breaks = c("1_25","1_100","1_200","2_25","2_100","2_200"), labels=c("25","100","200","25","100","200")) +
+          theme(text = element_text(size= 18), axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5),legend.title = element_text(size=15), legend.position = "right", axis.title.x = element_text(size=15)) + 
+          guides(color = guide_legend(title = "Phenological\nstage")) 
+          
+        
+        ggsave(filename = "Figures/2c_fertilizer_alpha_time.jpg", plot = plot_alpha, 
+               width = 7, height = 5, units = "in", dpi = 2100)
+plot_alpha
+```
+```{r}
+bray_diss <- phyloseq::distance(ps.rarefied.fert, method="bray")
+ordination <- ordinate(ps.rarefied, method="PCoA", distance=bray_diss)
+beta_diversity <- (merge(sample_data(ps.rarefied),ordination$vectors[,1:2],by="row.names"))
+
+beta_diversity$Dose <- factor(beta_diversity$Dose,levels=c("25","100","200"))
+#levels(beta_diversity$Dose)
+        
+plot_beta <- beta_diversity %>% 
+          ggplot(aes(x = Axis.1, y = Axis.2, color = Dose, shape = Time)) +
+          geom_point(size=6) +
+          xlab("PCo1 30.9%") +
+          ylab("PCo2 9.6%") +
+          scale_shape_discrete("Phenological\nstage", labels = c("Week_4"="Budding", "Week_8"="Flowering"))+
+          scale_color_discrete("Fertilizer\nlevel\n(mg/L N)")+
+          theme(text = element_text(size=10,color="black"), 
+                axis.text.x = element_text(angle = 360, vjust = 0.5, hjust=1,color="black"), 
+                axis.text.y = element_text(color="black")) 
+          
+ggsave(filename = "Figures/2d_fertilizer_beta.jpg",plot=plot_beta, 
+                 width = 7,height = 4, dpi = 2100)
+plot_beta
+```
+## Plot Beta diversity at Week 8 
+```{r}
+ps.rarefied.fert.2 <- subset_samples(ps.rarefied,Time=="Week_8")
+
+bray_diss <- phyloseq::distance(ps.rarefied.fert.2, method="bray")
+ordination <- ordinate(ps.rarefied.fert.2, method="PCoA", distance=bray_diss)
+plot_ordination(ps.rarefied.fert.2, ordination, color="Treatment", shape = "Treatment") + 
+  geom_point(size = 6) +
+  theme(aspect.ratio=1, strip.placement = "outside",text = element_text(size = 20)) 
+
+beta_diversity_2<-(merge(sample_data(ps.rarefied.fert.2 ),ordination$vectors[,1:2],by="row.names"))
+beta_diversity_2$Treatment<-factor(beta_diversity_2$Dose,levels=c("2_25","2_100","2_200"))
+  #levels(beta_diversity_2$Treatment)
+
+plot_beta_2 <- beta_diversity_2 %>% 
+  ggplot(aes(x = Axis.1, y = Axis.2, color = Dose)) +
+  geom_point(size=3,shape = 17) +
+  xlab("PCo1 20.7%") +
+  ylab("PCo2 17.3%") +
+  scale_color_discrete("Fertilizer\nlevel\n(mg/L N)") +
+  theme(text = element_text(size=10,color="black"), 
+                axis.text.x = element_text(angle = 360, vjust = 0.5, hjust=1,color="black"), 
+                axis.text.y = element_text(color="black")) 
+#+ stat_ellipse(geom = "polygon", type="norm", alpha=0.4, aes(fill=Treatment))
+
+ggsave(filename = "Figures/2e_fertilizer_beta_week_8.jpg",plot=plot_beta_2, 
+                 width = 3.5,height = 2.5,dpi = 2100)
+plot_beta_2
+```
+
+## Plot Beta diversity at Week 4 
+
+```{r}
+#Subset only samples from week 4
+ps.rarefied.fert.1 <- subset_samples(ps.rarefied,Time=="Week_4")
+
+bray_diss = phyloseq::distance(ps.rarefied.fert.1, method="bray")
+ordination = ordinate(ps.rarefied.fert.1, method="PCoA", distance=bray_diss)
+plot_ordination(ps.rarefied.fert.1, ordination, color="Treatment", shape = "Treatment") + 
+  geom_point(size = 6) +
+  theme(aspect.ratio=1, strip.placement = "outside",text = element_text(size = 20))
+
+  beta_diversity_1<-(merge(sample_data(ps.rarefied.fert.1),ordination$vectors[,1:2],by="row.names"))
+  beta_diversity_1$Treatment<-factor(beta_diversity_1$Treatment,levels=c("25","100","200"))
+  levels(beta_diversity_1$Treatment)
+
+plot_beta_1<- beta_diversity_1 %>% 
+  ggplot(aes(x = Axis.1, y = Axis.2, color = Dose),shape = 19) +
+  geom_point(size=3) +
+  xlab("PCo1 16.7%") +
+  ylab("PCo2 12.3%") +
+ scale_color_discrete("Fertilizer\nlevel\n(mg/L N)") +
+  theme(text = element_text(size=10,color="black"), 
+                axis.text.x = element_text(angle = 360, vjust = 0.5, hjust=1,color="black"), 
+                axis.text.y = element_text(color="black")) 
+
+ggsave(filename = "Figures/2f_fertilizer_beta_week_4.jpg",plot=plot_beta_1, 
+                 width = 3.5,height = 2.5)
+plot_beta_1
+
+```
+```{r Permanova, echo=TRUE}
+# Ex #############################################
+bray_diss = phyloseq::distance(ps.rarefied, method="bray")
+
+# PERMANOVA https://peerj.com/articles/32/
+permanova<-adonis2(bray_diss ~ sample_data(ps.rarefied)$Time * sample_data(ps.rarefied)$Dose,permutations=10000)
+print(permanova)
+
+#Calculates dispersion (equivalent to variation)
+bd_time<-betadisper(bray_diss, sample_data(ps.rarefied)$Time)
+#Test is there is difference in variation (dispersion)
+#anova(bd)
+dispersion_time<-permutest(bd_time) #Permutation based test
+
+#Calculates dispersion (equivalent to variation)
+bd_dose<-betadisper(bray_diss, sample_data(ps.rarefied)$Dose)
+#Test is there is difference in variation (dispersion)
+#anova(bd_dose)
+dispersion_dose<-permutest(bd_dose) #Permutation based test
+dispersion_dose_pair<-permutest(bd_dose,pairwise=TRUE)
+
+sink(file = "Results/2_beta_diversity_permanova.csv")
+print(permanova)
+print("Permutation test for homogeneity of multivariate dispersions: Time")
+dispersion_time
+print("Permutation test for homogeneity of multivariate dispersions: Dose")
+dispersion_dose
+sink(file = NULL)
+```
+
+```{r}
+save.image(file = "2_Alpha_Beta_Div.RData")
+```

@@ -1,0 +1,239 @@
+---
+title: "Microbiome analysis - Substrate microbiome - core microbiome"
+author: 
+date: "2023-07-07"
+output:  html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, echo=FALSE}
+
+library("Biostrings")
+library('tidyverse')
+library('gridExtra')
+#library('dada2')
+library('phyloseq')
+library('phangorn')
+library('DECIPHER')
+library('ape')
+library("writexl")
+library("microbiome")
+load("3_core_microbiome.RData")
+
+```
+#Load phyloseq file
+```{r cars}
+
+ps.rarefied<- readRDS('3_Final_data//phyloseq_data_rarefy.rds')
+ps.rarefied
+# Calculate compositional version of the data (relative abundances)
+
+pseq.rel <- microbiome::transform(ps.rarefied, "compositional")
+pseq.rel
+```
+```{r}
+
+  fertilizer <- unique(as.character(meta(pseq.rel)$Dose))
+  print(fertilizer)
+
+  #Write a for loop to go through each of the fertilizer levels one by one and combine identified core taxa into a list.
+  
+  list_core <- c() # an empty object to store information
+  
+  for (n in fertilizer){ # for each variable n in fertilizer
+    print(paste0("Identifying Core Taxa for ", n))
+    
+    ps.sub <- subset_samples(pseq.rel, fertilizer == n) # Choose sample from DiseaseState by n
+    
+    core_m <- core_members(ps.sub, # ps.sub is phyloseq selected with only samples from g 
+                           detection = 0.001, # 0.001% in atleast 99% samples 
+                           prevalence = 0.99)
+    print(paste0("No. of core taxa in ", n, " : ", length(core_m))) # print core taxa identified in each DiseaseState.
+    list_core[[n]] <- core_m # add to a list core taxa for each group.
+    #print(list_core)
+  }  
+  
+  ASV_core<-levels(factor(c(list_core$'25',list_core$'100',list_core$'200')))
+
+  print(list_core)
+  core_taxa_25 <- prune_taxa(list_core$'25',ps.rarefied)
+  core_taxa_100 <- prune_taxa(list_core$'100',ps.rarefied)
+  core_taxa_200 <- prune_taxa(list_core$'200',ps.rarefied)
+  core_taxa <-prune_taxa(ASV_core,ps.rarefied)
+  
+  #Retrieving the core taxa names from the phyloseq object:
+  ASV_seq_core <- refseq(core_taxa)
+  ASV_seq_core_taxonomy <- as.data.frame(tax_table(core_taxa))
+  ASV_seq_core_taxonomy$ASV<-rownames(ASV_seq_core_taxonomy)
+  
+  filepath <- file.path(getwd(), "Results/3_core_dna_seq_fasta.fasta")
+  writeXStringSet(ASV_seq_core, filepath, append=FALSE,
+                  compress=FALSE, compression_level=NA, format="fasta")
+  
+  write_xlsx(ASV_seq_core_taxonomy,"Results/3_ASV_seq_core_taxonomy.xlsx")
+```
+##Plot Venn Diagram
+```{r}
+  library("eulerr")
+  # Specify colors and plot venn
+  # supplying colors in the order they appear in list_core
+  mycols <- c("100"="#00BA38", "200"="#CD9600","25"="#F8766D") 
+  Core_venn <- plot(venn(list_core), fills = mycols) 
+  ggsave(plot = Core_venn,filename="Figures/3_Poster_4_Core_Venn_Diagram.png",width = 2.5,height = 2.5)
+  Core_venn 
+```
+
+## Construct phylogenetic tree
+source:https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4955027/
+https://fuzzyatelin.github.io/bioanth-stats/module-24/module-24.html#distance-based_methods
+
+
+```{r}
+#mbSet<-ReadTreeFile(mbSet, "ibd_tree.tre");
+seqs <- ASV_seq_core
+
+#Performing a multiple-alignment using the DECIPHER R package
+alignment <- AlignSeqs(DNAStringSet(seqs),
+                       anchor = NA)
+BrowseSeqs(alignment, highlight=0)
+writeXStringSet(alignment,
+   file="Results/core_alignment.fasta")
+
+# Construct a phylogenetic tree with The phangorn R package
+# 1_construct a neighbor-joining tree,
+
+phang.align <- phyDat(as(alignment, 'matrix'), type = 'DNA') # These function transform several DNA formats into the phyDat format.
+
+mt <- modelTest(phang.align, control = pml.control(trace = 0))
+fit_2 <- pml_bb(mt,control = pml.control(trace = 0))
+ape::write.tree(fit_2$tree, file='Results/tree_core_PVM+G(4)+I.tree')
+
+#Constructing a distance matrix
+dm <- dist.ml(phang.align) # dist.ml uses DNA / AA sequences to compute distances under different substitution models
+
+#Construct an unrooted tree using Neighbor Joining with the distance matrix (Saitou and Nei 1987; Studier and Keppler 1988). 
+treeNJ <- NJ(dm) # Note, tip order is not sequence order; Performs the neighbor-joining tree estimation of Saitou and Nei (1987)
+
+# 2_fit a GTR+G+I (Generalized time-reversible with Gamma rate variation) maximum likelihood tree using the neighbor-joining tree as a starting point.
+
+fit <- pml(treeNJ, data = phang.align) # pml computes the likelihood of a phylogenetic tree given a sequence alignment and a model
+
+print('Fit GTR model...')
+fitGTR <- update(fit, k = 4, inv = 0.2)
+
+print('Computing likelihood of tree...')
+fitGTR <- optim.pml(fitGTR,
+                    model = 'GTR',
+                    optInv = TRUE,
+                    optGamma = TRUE,
+                    optNni = TRUE,
+                    rearrangement = 'stochastic',
+                    control = pml.control(trace = 0)) # optim.pml optimizes the different model parameters.
+
+# Compare the optimized tree to the neighbor joining tree using an anova
+anova(fit, fitGTR)
+# Use AIC, which is a better model for the data (lower AIC value is better)
+AIC(fit_2)
+AIC(fitGTR)
+write.tree(fitGTR$tree, file='Results/tree_core_GTR+G(4)+I.tree')
+
+detach("package:phangorn", unload=TRUE)
+```
+
+Plot the phylogenetic tree: First fraft:
+```{r pressure, warning=FALSE, include=FALSE}
+library("treeio")
+library("ggtree")
+library("tidytree")
+library("ggtreeExtra")
+
+fitGTR <- ape::read.tree(file='Results/tree_core_PVM+G(4)+I.tree')
+#fitGTR <- read.newick(file='Results/RAxML best Tree.nwk')
+pmltree <- as.treedata(fitGTR)# Load the plot created above to data format for treeio
+
+```
+
+Prepare medatata
+```{r}
+ASV_core_all<-levels(factor(c(list_core$'25',list_core$'100',list_core$'200')))
+ASV_core_25<-as.data.frame(levels(factor(list_core$'25')))
+ASV_core_100<-as.data.frame(levels(factor(list_core$'100')))
+ASV_core_200<-as.data.frame(levels(factor(list_core$'200')))
+
+ASV_core_25$ppm_1<-25
+colnames(ASV_core_25)<-c("ASV","ppm_1")
+ASV_core_100$ppm_2<-100
+colnames(ASV_core_100)<-c("ASV","ppm_2")
+ASV_core_200$ppm_3<-200
+colnames(ASV_core_200)<-c("ASV","ppm_3")
+
+ASV_core_all<-full_join(ASV_core_25,ASV_core_100,ASV_core_200,by="ASV")
+ASV_core_all<-full_join(ASV_core_all,ASV_core_200,by="ASV")
+ASV_core_all$sum_ppm<-rowSums(ASV_core_all[,2:4],na.rm=TRUE)
+
+ASV_core_all <- ASV_core_all %>%
+  mutate(Status = case_when(
+          sum_ppm == 25 ~ "25",
+          sum_ppm == 100 ~ "100",
+          sum_ppm == 200 ~ "200",
+          sum_ppm == 325 ~ "Core",
+         .default = "Shared"
+    ))
+ASV_core_all <- ASV_core_all %>%
+  mutate(low = case_when(
+          ppm_1 == 25 ~ "25",
+         .default = "Empty"
+    ))
+ASV_core_all <- ASV_core_all %>%
+  mutate(optimum = case_when(
+          ppm_2 == 100 ~ "100",
+         .default = "Empty"
+    ))
+ASV_core_all <- ASV_core_all %>%
+  mutate(excess = case_when(
+          ppm_3 == 200 ~ "200",
+         .default = "Empty"
+    ))
+  
+ASV_core_all$label<-ASV_core_all$ASV
+write_xlsx(ASV_core_all,"Results/3_ASV_core_all_taxonomy.xlsx")
+ASV_core_all
+```
+
+```{r}
+set.seed(2020)
+x <- pmltree
+d <-  data.frame(tax_table(core_taxa))#data.frame(label=x$tip.label, var1=abs(rnorm(30)), var2=abs(rnorm(30)))
+d$label<-row.names(d)
+
+tree <- full_join(x, d, by='label')
+tree <- full_join(tree, ASV_core_all, by='label')
+
+circ <-ggtree(tree, branch.length='none', layout='circular') +
+      geom_tiplab(size=2.5, color="black",hjust=-0.8, geom='text') +
+    #geom_nodepoint(color="#b5e521", alpha=1/4, size=10) +
+    geom_tippoint(aes(color=Phylum), shape=20, size=4) 
+circ   
+core_plot<- circ + geom_fruit( geom=geom_tile,
+         mapping=aes(fill=Status),
+         width=0.5,
+         offset=0.1 ) + 
+        scale_fill_manual(name="Presence", values=c("#00BA38","#619CFF","#F8766D","yellow","#b5b5b5")) +
+        scale_color_manual(name="Phylum",values=c("#00BA38","#619CFF","#F8766D","#E4CD05","#b5b5b5",
+                                                     "#00ff00","#744700","#ff0000","#404040","#9c27b0",
+                                                     "#16d0cb","#0000ff","#ff00cc"))    +
+        theme(legend.text = element_text(size=10))
+  #more colors here https://www.statology.org/ggplot-default-colors/
+core_plot
+
+ggsave(plot = core_plot,"Figures/3b_Core_Microbiome.jpg",width = 7,height = 6,dpi=2100)
+```
+
+```{r}
+#save.image(file = "3_core_microbiome.RData")
+```
+

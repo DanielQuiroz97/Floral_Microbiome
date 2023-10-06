@@ -1,0 +1,208 @@
+---
+title: "Microbiome analysis - Substrate microbiome - DEseq2"
+author: 
+date: "2023-07-10"
+output: html_notebook 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(phyloseq)
+library(tidyverse)
+library(microbiome)
+library(ggpubr)
+library(ggsci)
+library(DESeq2)
+library("knitr")
+library(writexl)
+
+#load(file = "4_DEseq2.RData")
+#https://rstudio-pubs-static.s3.amazonaws.com/329027_593046fb6d7a427da6b2c538caf601e1.html#example-1-two-group-comparison
+```
+
+## Remove poor represented ASV
+In this case, since we are going to conduct comparative analysis, we need to remove ASV with less that 5 counts as well as to be detected in at least 50% of the samples. This yields to a total of 527 taxa that meet this two criteria.
+
+```{r}
+floral_micro_filter<- readRDS('3_Final_data/phyloseq_data.rds')
+floral_micro_filter 
+#Find ASV with at least 5 counts and detected in at least 50% 
+floral_micro_filter_5C <- genefilter_sample(floral_micro_filter,
+                                            filterfun_sample(function(x) x > 5),
+                                            A=0.5*nsamples(floral_micro_filter)
+           )
+floral_micro_deseq <- prune_taxa(floral_micro_filter_5C, floral_micro_filter)
+floral_micro_deseq
+```
+
+## Transform counts to a even depth
+
+As we can see, 68846.09	 is an intermediate sequencing depth for treatment. We are going to transform the count table from absolute counts to an homogeneous depth.
+
+```{r}
+meta(floral_micro_deseq) %>%
+  group_by(Dose) %>% 
+  summarise(Depth_mean = mean(SeqDepth))
+```
+
+```{r}
+floral_micro_relat <- transform_sample_counts(floral_micro_deseq,
+                                              function(x) 68846 * x/(sum(x)))
+```
+
+## Keeping the 6 most abundant phyla
+```{r}
+phylum_sum <- tapply(taxa_sums(floral_micro_relat),
+                     tax_table(floral_micro_relat)[, "Phylum"], sum, na.rm = TRUE)
+print("Only the six most abundant phyla are preserved for downstream analysis to remove low represented ASV")
+top5phyla <- names(sort(phylum_sum, decreasing = TRUE))[seq(6)]
+top5phyla
+```
+## SAVE dataset to be analyzed
+```{r}
+floral_micro_relat <- prune_taxa((tax_table(floral_micro_relat)[, "Phylum"] %in% top5phyla),
+                                 floral_micro_relat)
+floral_micro_relat
+#saveRDS(floral_micro_relat, file = file.path('phyloseq_data_top5.rds'))
+ps.rarefied<- readRDS('3_Final_data/phyloseq_data_top5.rds') #This is to load file created above
+```
+
+The final result yield us to a total of 449 ASV for downstream analysis.
+
+## Transforming to Deseq2 object
+
+```{r}
+phyloseq::sample_data(floral_micro_relat) <- meta(floral_micro_relat) %>% 
+   mutate(Block = factor(Block),
+          Time = factor(Time, levels=c("Week_4","Week_8")), 
+          Dose = factor(Dose,levels=c("25","100","200")))
+
+  
+diagdds_floral <- phyloseq_to_deseq2(floral_micro_relat, 
+                                     design =  ~ Dose + Time + Dose*Time)
+diagdds_floral$Time = relevel( diagdds_floral$Time, "Week_4")
+diagdds_floral$Time
+diagdds_floral$Dose = relevel( diagdds_floral$Dose, "100")
+diagdds_floral$Dose
+```
+
+```{r}
+gm_mean = function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans = apply(counts(diagdds_floral), 1, gm_mean)
+
+# Variance estimation
+diagdds_floral = estimateSizeFactors(diagdds_floral, geoMeans = geoMeans)
+diagdds_floral = estimateDispersions(diagdds_floral, fitType='local')
+
+```
+
+Extraction of the normalized matrix
+
+```{r}
+diagvst_floral = getVarianceStabilizedData(diagdds_floral)
+dim(diagvst_floral)
+
+```
+
+Now, we can replace the normalized matrix for the absolute counts in the phyloseq object
+
+```{r}
+floral_micro_deseq_final <- floral_micro_relat
+otu_table(floral_micro_deseq_final) <- otu_table(diagvst_floral, taxa_are_rows = TRUE)
+```
+
+## Differential ASV
+
+Let's check first the design to make sure we have the right formula
+
+```{r}
+design(diagdds_floral)
+```
+
+```{r}
+#Defining alpha level
+alpha = 0.05
+
+#Differential analysis
+diagdds_floral <- DESeq(diagdds_floral, fitType = "local")
+resultsNames(diagdds_floral)
+#results_deseq <- results(diagdds_floral,contrast=c("Time","Week_8","Week_4")) #At 25 8_vs_4
+#results_deseq <- results(diagdds_floral,contrast=list(c("Time_Week_8_vs_Week_4","Dose100.TimeWeek_8"))) #At 100 8_vs_4
+#results_deseq <- results(diagdds_floral,contrast=list(c("Time_Week_8_vs_Week_4","Dose200.TimeWeek_8"))) #At 200 8_vs_4
+results_deseq_8_25 <- results(diagdds_floral,contrast=list(c("Dose_25_vs_100","Dose25.TimeWeek_8"))) #At 8 25_vs_100
+results_deseq_8_200 <- results(diagdds_floral,contrast=list(c("Dose_200_vs_100","Dose200.TimeWeek_8"))) #At 8 200_vs_100
+results_deseq_4_25 <- results(diagdds_floral,contrast=c("Dose","25","100")) #At 4 25_vs_100
+results_deseq_4_200 <- results(diagdds_floral,contrast=c("Dose","200","100")) #At 4 200_vs_100
+
+#results_deseq_3_25 <- results_deseq[order(results_deseq$padj, na.last = NA), ]
+
+```
+
+```{r}
+sig_dif_asv_8_25 <- results_deseq_8_25[which(results_deseq_8_25$padj < alpha), ]
+sig_dif_asv_8_25 <- cbind(as(sig_dif_asv_8_25,"data.frame"),
+                      as(tax_table(floral_micro_deseq_final)[rownames(sig_dif_asv_8_25), ],
+                         "matrix"))
+
+sig_dif_asv_8_200 <- results_deseq_8_200[which(results_deseq_8_200$padj < alpha), ]
+sig_dif_asv_8_200 <- cbind(as(sig_dif_asv_8_200,"data.frame"),
+                      as(tax_table(floral_micro_deseq_final)[rownames(sig_dif_asv_8_200), ],
+                         "matrix"))
+
+sig_dif_asv_4_25 <- results_deseq_4_25[which(results_deseq_4_25$padj < alpha), ]
+sig_dif_asv_4_25 <- cbind(as(sig_dif_asv_4_25,"data.frame"),
+                      as(tax_table(floral_micro_deseq_final)[rownames(sig_dif_asv_4_25), ],
+                         "matrix"))
+
+sig_dif_asv_4_200 <- results_deseq_4_200[which(results_deseq_4_200$padj < alpha), ]
+sig_dif_asv_4_200 <- cbind(as(sig_dif_asv_4_200,"data.frame"),
+                      as(tax_table(floral_micro_deseq_final)[rownames(sig_dif_asv_4_200), ],
+                         "matrix"))
+```
+
+Plot factorial DEseq2
+```{r}
+sig_dif_asv_8_25$Time = "Week_8"
+sig_dif_asv_8_200$Time = "Week_8"
+sig_dif_asv_4_25$Time = "Week_4"
+sig_dif_asv_4_200$Time = "Week_4"
+
+sig_dif_asv_8_25$test = "Week_8 (25 vs. 100)"
+sig_dif_asv_8_200$test = "Week_8 (200 vs. 100)"
+sig_dif_asv_4_25$test = "Week_4 (25 vs. 100)"
+sig_dif_asv_4_200$test = "Week_4 (200 vs. 100)"
+
+sig_dif_asv_8_25$ASV = row.names(sig_dif_asv_8_25)
+sig_dif_asv_8_200$ASV = row.names(sig_dif_asv_8_200)
+sig_dif_asv_4_25$ASV =row.names(sig_dif_asv_4_25)
+sig_dif_asv_4_200$ASV <- row.names(sig_dif_asv_4_200)
+
+merged_sig <- rbind(sig_dif_asv_8_25,sig_dif_asv_8_200,sig_dif_asv_4_25,sig_dif_asv_4_200)
+merged_sig$test <- factor(merged_sig$test,levels = c("Week_8 (25 vs. 100)","Week_8 (200 vs. 100)","Week_4 (25 vs. 100)","Week_4 (200 vs. 100)"))
+levels(merged_sig$test)<-list("Flowering\n25 vs. 100 (mg/L N)"="Week_8 (25 vs. 100)","Flowering\n200 vs. 100 (mg/L N)"="Week_8 (200 vs. 100)","Budding\n25 vs. 100 (mg/L N)"="Week_4 (25 vs. 100)","Budding\n200 vs. 100 (mg/L N)"="Week_4 (200 vs. 100)")
+
+merged_sig$Species2 <- sub("Unclassified", "", merged_sig$Species)
+merged_sig$ASV_Genus<-paste(merged_sig$ASV,merged_sig$Genus)
+
+deseq2plot <- ggplot(merged_sig, aes(x=Phylum, y=log2FoldChange, color=ASV_Genus))+ 
+  geom_jitter(size=4, width = 0.1) + 
+  facet_wrap( ~ test, ncol = 2) +
+  theme(text = element_text(size=15), axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+  guides(color=guide_legend(title="ASV ID_Genus classification"))
+  #scale_fill_discrete("Phylum",
+#                      breaks = c("ASV114 Unclassified","ASV115 Unclassified","ASV213 Unclassified","ASV315 Unclassified","ASV320 Unclassified","ASV478 Unclassified","ASV693 Unclassified"),
+ #                     labels = c("Unclassified","Unclassified","*Spirosoma aerophilum *","Unclassified","Unclassified","Noviherbaspirillum","Unclassified"))+
+  #theme(aspect.ratio=1, strip.placement = "outside",text = element_text(size = 15)) #+
+  #scale_x_discrete("Phylum", labels=expression(italic(Bacteriodota),italic(Elusimicrobiota),italic(Proteobacteria),italic(Verrucomicrobiota)))
+write_xlsx(merged_sig,"Results/4_DeSEq2_table.xlsx")
+ggsave("Figures/4a_Fertilizer_deseq_week.jpg",width = 7,height = 6,dpi = 2100)
+deseq2plot
+```
+```{r}
+save.image(file = "4_DEseq2.RData")
+```

@@ -1,0 +1,280 @@
+---
+title: "Microbiome analysis - Substrate microbiome - FAPROTAX"
+author: "Juan Quijia"
+date: "2023-07-10"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r packages, include=FALSE}
+library(rstatix)
+library("file2meco")
+library("microeco")
+library("writexl")
+library("tidyverse")
+library("ggpubr")
+library("dplyr")
+library("gridExtra")
+library("file2meco")
+
+#load("5_Faprotax.RData")
+```
+```{r}
+#Continue here with phyloseq_data.rds file that was already created. Step_1
+
+ps<- readRDS('3_Final_data/phyloseq_data.rds')
+ps.rarefied<- readRDS('3_Final_data/phyloseq_data_rarefy.rds')
+
+physeq <- phyloseq2meco(ps.rarefied )
+physeq
+str(physeq$sample_table)
+physeq$sample_sums()
+
+physeq$cal_betadiv(unifrac = F) #If method parameter is not provided, the function automatically calculates Bray-curtis, Jaccard, weighted Unifrac and unweighted unifrac matrixes.
+physeq
+```
+
+
+```{r cars}
+
+physeq$sample_sums()
+# create object of trans_func
+t2 <- trans_func$new(physeq)
+# mapping the taxonomy to the database
+# this can recognize prokaryotes or fungi automatically if the names of taxonomic levels are standard.
+# for fungi example, see https://chiliubio.github.io/microeco_tutorial/other-dataset.html#fungi-data
+# default database for prokaryotes is FAPROTAX database
+t2$cal_spe_func(prok_database = "FAPROTAX")
+# return t2$res_spe_func, 1 represent trait exists, 0 represent no or cannot confirmed.
+head(t2$res_spe_func)
+sum(t2$res_spe_func[,"nitrogen_fixation"])
+t2$otu_table[c("ASV1679","ASV2171","ASV2727"),]
+
+faprotax_mapping<-as.data.frame(t2$res_spe_func)
+faprotax_mapping$ASV<-rownames(faprotax_mapping)
+faprotax_mapping<-merge(faprotax_mapping,physeq$tax_table,by="row.names")
+faprotax_mapping
+write_xlsx(faprotax_mapping,"4_FAPROTAX_mapping.xlsx")
+
+```
+
+
+# The percentages of the OTUs having the same trait can reflect the functional redundancy of this function in the community:
+
+```{r pressure, echo=FALSE}
+# calculate the percentages for communities
+# here do not consider the abundance
+t2$cal_spe_func_perc(abundance_weighted = TRUE,perc = TRUE,dec=2)
+t2$res_spe_func_perc[]
+t2$plot_spe_func_perc()
+t2$func_group_list
+
+faprotax_per<-as.data.frame(t2$res_spe_func_perc) #multiplied by dept to get counts, remember ASV can have many functions
+faprotax_metadata<-as.data.frame(t2$sample_table)
+
+top_func <- names(sort(colSums(faprotax_per), TRUE)[1:15])
+top_func
+top_func_2<-top_func[c(-1,-2)]
+```
+```{r}
+faprotax<-(merge(faprotax_per,faprotax_metadata,by="row.names"))
+colSums(faprotax[,2:47])
+colnames(faprotax)
+faprotax_long<-pivot_longer(faprotax,c(colnames(faprotax[,2:47])),
+                                   names_to="Function",
+                                   values_to="Percent")
+faprotax_long <- filter(faprotax_long, faprotax_long$Function %in% top_func)# & Function != "aerobic_chemoheterotrophy" & Function != "chemoheterotrophy" & Function != "dark_hydrogen_oxidation")
+str(faprotax_long$Function)
+ggplot(data = faprotax_long, mapping = aes(x=Treatment, y=Function, fill=Percent)) + 
+      geom_tile() + scale_fill_gradient(low="#00008B", high="#9E0142") 
+ggsave("Figures/5_FAPROTAX.jpg",width = 8,height = 6)
+```
+
+```{r}
+  group_table<-reshape2::melt(t2$func_group_list)
+	colnames(group_table) <- c("func", "group")
+				filter_func <- group_table$func
+				plot_data <- faprotax_long[faprotax_long$Function %in% group_table$func, ]
+				plot_data <- dplyr::left_join(plot_data, group_table, by = c("Function" = "func"))
+				plot_data$group<- factor(plot_data$group, levels = c( "Energy source","C-cycle","N-cycle","S-cycle", "Others"))
+      
+ggplot(data = plot_data, mapping = aes(x=Treatment, y=Function, fill=Percent)) + 
+      geom_tile() + scale_fill_gradient(low="#00008B",, high="#9E0142") + 
+      #facet_grid(group~., drop=TRUE, scale="free",space="free", switch = "y") +
+        labs(y = NULL, x = NULL, fill = "ASV counts") + 
+				theme(axis.text.x = element_text(angle = 90, colour = "black", vjust = 0, hjust = 1, size = 10), axis.text.y = element_text(size = 10)) +
+				theme(panel.grid = element_blank(), panel.border = element_blank()) +
+				theme(panel.spacing = unit(.2, "lines")) + 
+				theme(plot.margin=unit(c(1, 1, 1, 1), "cm"))
+
+faprotax_long %>%
+  group_by(Function,Time, Dose) %>%
+  get_summary_stats(Percent, type="common")
+
+faprotax_long %>%ggplot( aes(x=Treatment, y=Percent, fill=Time)) + 
+  geom_boxplot() + facet_grid( Function ~ ., scales = "free_y")
+
+my_comparisons <- list( c("1_100", "1_25"), c("1_100", "1_200"), c("1_25", "1_200"),
+                        c("2_100", "2_25"), c("2_100", "2_200"), c("2_25", "2_200"),
+                        c("1_25", "2_25"), c("1_100", "2_100"), c("1_200", "2_200"))
+
+  anova(lm(faprotax$nitrogen_fixation ~ faprotax$Block + faprotax$Treatment))$`Pr(>F)`
+  (residuals(aov(faprotax$nitrogen_fixation ~ faprotax$Block + faprotax$Dose*faprotax$Time)) %>% shapiro.test())$p.value
+  
+faprotax_kw<-lapply(split(faprotax_long, faprotax_long$Function), function(i){
+  kruskal.test(Percent ~ Treatment, data = i)$p.value
+  })
+
+faprotax_anova<-lapply(split(faprotax_long, faprotax_long$Function), function(i){
+  anova(lm(Percent ~ Block + Treatment, data = i))$`Pr(>F)`
+  })
+
+faprotax_normality<-lapply(split(faprotax_long, faprotax_long$Function), function(i){
+  (residuals(aov(Percent ~ Block + Dose*Time, data = i)) %>% shapiro.test())$p.value
+  })
+
+signi_kw <- as.data.frame(faprotax_kw)
+signi_kw <- pivot_longer(signi_kw,c(colnames(signi_kw)),
+                                   names_to="Function",
+                                   values_to="P-value_KW")
+
+signi_anova <- as.data.frame(faprotax_anova)
+signi_anova<-signi_anova[c(-1,-3),]
+signi_anova <- pivot_longer(signi_anova,c(colnames(signi_anova)),
+                                   names_to="Function",
+                                   values_to="P-value")
+
+
+signi_shapiro <- as.data.frame(faprotax_normality)
+signi_shapiro <- pivot_longer(signi_shapiro,c(colnames(signi_shapiro)),
+                                   names_to="Function",
+                                   values_to="P-value-Shapiro")
+class(signi_shapiro)
+
+rownames(signi_kw) <- signi_kw$Function
+rownames(signi_anova) <- signi_anova$Function
+rownames(signi_shapiro)<- signi_shapiro$Function
+
+stat_test<-full_join(signi_anova,signi_kw,by = c("Function"))
+stat_test<-full_join(stat_test,signi_shapiro,by = c("Function"))
+
+stat_test$adj_p_kw<-p.adjust(stat_test$`P-value_KW`, method="fdr")
+stat_test$adj_p<-p.adjust(stat_test$`P-value`, method="fdr")
+
+faprotax_normality$aerobic_ammonia_oxidation$method
+faprotax_normality$aerobic_ammonia_oxidation$p.value
+
+```
+## Multiple comparisons - Wilcox.Test
+```{r}
+#Select variable to use in Wilcox.test according to KW.test p-value (<0.05)
+signi_function<-stat_test[stat_test$`P-value_KW`< 0.05, c(1,3)] # select significant functions based on kw
+signi_function
+```
+```{r}
+#Loop below will do pair wise wilcox.test for each selected variable in "signi_fucntion"
+tmp_1 <- list()
+for(func in signi_function$Function){
+  print(func)
+  data_1 <- filter(faprotax_long,faprotax_long$Function == func)
+  tmp_1[[func]] <- compare_means(
+        Percent ~ Treatment,
+        data_1,
+        method = "wilcox.test",
+        paired = FALSE,
+        group.by = NULL,
+        ref.group = NULL,
+        symnum.args = list(cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, Inf), symbols = c("****", "***", "**", "*", "ns")),
+        p.adjust.method = "fdr",
+        )
+  tmp_1[[func]]$compare<-factor(paste(tmp_1[[func]]$group1, tmp_1[[func]]$group2, sep="_vs_"))
+  tmp_1[[func]]$order<-c(2,1,8,10,11,3,12,9,13,14,15,7,5,4,6)
+  tmp_1[[func]]<-tmp_1[[func]][order(tmp_1[[func]]$order),]
+}
+
+#Check how it looks for aerobic_chemoheterotrophy 
+tmp_1$aerobic_chemoheterotrophy
+```
+```{r}
+p_signi<-list(cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, Inf), symbols = c("****", "***", "**", "*", "ns"))
+
+tmp <- list()
+# The code below creates plot with actual p-value
+for(func in signi_function$Function){
+  print(func)
+  data_1 <- filter(faprotax_long,faprotax_long$Function == func)
+  data_1$Treatment<-factor(data_1$Treatment,levels = c("1_25","1_100","1_200","2_25","2_100","2_200"))
+  levels(data_1$Treatment) <- list("Budding_25"="1_25","Budding_100"="1_100","Budding_200"="1_200","Flowering_25"="2_25","Flowering_100"="2_100","Flowering_200"="2_200")
+  
+  kw_test <- tmp_1[[func]][-(10:15),]
+  kw_test$group1 <- as.factor(kw_test$group1)
+  kw_test$group2 <- as.factor(kw_test$group2)
+  levels(kw_test$group1) <- list("Budding_25"="1_25","Budding_100"="1_100","Budding_200"="1_200","Flowering_25"="2_25","Flowering_100"="2_100","Flowering_200"="2_200")
+  levels(kw_test$group2) <- list("Budding_25"="1_25","Budding_100"="1_100","Budding_200"="1_200","Flowering_25"="2_25","Flowering_100"="2_100","Flowering_200"="2_200")
+  
+  func_plot <- data_1 %>% ggplot(aes(x=Treatment, y = Percent )) + 
+                geom_boxplot(aes(fill=Time)) + stat_compare_means(label.y = 3.5*max(data_1$Percent),label.x = 1.5, size = 3, vjust = 1) + 
+                ggtitle(func) + theme_classic() + 
+                theme(text = element_text(size=10), 
+                      axis.text.x = element_text(angle = 360,
+                      vjust = 0.5, hjust=1),
+                      legend.position="none",
+                      plot.title=element_text(size=10)) + 
+                scale_x_discrete("Fertilizer rate (mg/L N)",labels=c('25','100','200','25','100','200'))
+  
+  tmp[[func]] <- func_plot + stat_pvalue_manual(kw_test, label = "p.adj", size =3,
+                                   y.position = c(1.1*max(data_1$Percent),1.2*max(data_1$Percent), 1.5*max(data_1$Percent),
+                                               1.1*max(data_1$Percent), 1.2*max(data_1$Percent), 1.5*max(data_1$Percent),
+                                               2.0*max(data_1$Percent), 2.4*max(data_1$Percent), 2.8*max(data_1$Percent)
+                                               ))
+}
+
+tmp[[func]]
+```
+```{r}
+# The code below creates plots with actual representative siginificance of p-value (i.e., ***,**)
+for(func in signi_function$Function){
+  print(func)
+  data_1 <- filter(faprotax_long,faprotax_long$Function == func)
+  data_1$Treatment<-factor(data_1$Treatment,levels = c("1_25","1_100","1_200","2_25","2_100","2_200"))
+  levels(data_1$Treatment) <- list("Budding_25"="1_25","Budding_100"="1_100","Budding_200"="1_200","Flowering_25"="2_25","Flowering_100"="2_100","Flowering_200"="2_200")
+  
+  kw_test <- tmp_1[[func]][-(10:15),]
+  kw_test$group1 <- as.factor(kw_test$group1)
+  kw_test$group2 <- as.factor(kw_test$group2)
+  levels(kw_test$group1) <- list("Budding_25"="1_25","Budding_100"="1_100","Budding_200"="1_200","Flowering_25"="2_25","Flowering_100"="2_100","Flowering_200"="2_200")
+  levels(kw_test$group2) <- list("Budding_25"="1_25","Budding_100"="1_100","Budding_200"="1_200","Flowering_25"="2_25","Flowering_100"="2_100","Flowering_200"="2_200")
+  
+  func_plot <- data_1 %>% ggplot(aes(x=Treatment, y = Percent )) + 
+                geom_boxplot(aes(color=Time)) + stat_compare_means(label.y = 3.5*max(data_1$Percent),label.x = 1.5, size = 3, vjust = 1) + 
+                ggtitle(func) + theme_classic() + 
+                theme(text = element_text(size=10), 
+                      axis.text.x = element_text(angle = 360,
+                      vjust = 0.5, hjust=1),
+                      legend.position="none",
+                      plot.title=element_text(size=10)) + 
+                scale_x_discrete("Fertilizer rate (mg/L N)",labels=c('25','100','200','25','100','200'))
+  
+  tmp[[func]] <- func_plot + stat_pvalue_manual(kw_test, label = "p.signif", size =3,
+                                   y.position = c(1.1*max(data_1$Percent),1.2*max(data_1$Percent), 1.5*max(data_1$Percent),
+                                               1.1*max(data_1$Percent), 1.2*max(data_1$Percent), 1.5*max(data_1$Percent),
+                                               2.0*max(data_1$Percent), 2.4*max(data_1$Percent), 2.8*max(data_1$Percent)
+                                               ))
+}
+
+tmp[[func]]
+```
+```{r}
+plot_func_sig <- marrangeGrob(grobs = tmp, nrow=4, ncol = 3)
+
+ggsave(filename = "Figures/5_FAPROTAX_boxplot.jpg", plot = plot_func_sig,
+                 width = 7,height = 8, units = "in",dpi = 2100)
+plot_func_sig
+```
+```{r}
+save.image(file = "5_Faprotax.RData")
+```
