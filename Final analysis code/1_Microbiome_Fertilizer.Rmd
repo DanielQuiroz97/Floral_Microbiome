@@ -241,6 +241,7 @@ rafefaction_curve<-rarecurve(t(rarefaction_data), step=50, cex=0.6, col = "black
 
 #saveRDS(ps.rarefied, file = file.path('phyloseq_data_rarefy.rds'))
 ps.rarefied<- readRDS('3_Final_data/phyloseq_data_rarefy.rds')
+ps.rarefied
 ```
 # Fraction of reads that can be assigned to a taxonomic level (% all reads from all samples)
 ```{r}
@@ -274,8 +275,7 @@ fraction <- ggplot(fractionReadsAssigned.L, aes(y = fractionReadsAssigned, x = t
       guides(fill = guide_legend(title = "Phenological stage_\nFertilizer dose (mg/L N)"),color = guide_legend(title = "Phenological stage_\nFertilizer dose (mg/L N)")) +
       theme(legend.position="bottom", legend.title = element_text(size=9)) +
       #ggtitle("Fraction of reads identified by taxonomic level") +
-      geom_point(position=position_jitterdodge(jitter.width=0, jitter.height=0), size=.1) + 
-      scale_y_break(c(0.1,0.6)) + scale_y_break(c(0.75,0.85))
+      geom_point(position=position_jitterdodge(jitter.width=0, jitter.height=0), size=.1) 
 
     ggsave(plot = fraction, filename = "Figures/1_Fraction of reads identified by taxonomic level.jpg", width = 170,
            height = 200,
