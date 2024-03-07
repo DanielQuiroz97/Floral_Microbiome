@@ -20,6 +20,7 @@ library("vegan")
 library("ggtext") # Needed to for italic font
 library("tidyverse")
 library("microbiome")
+library("ggbreak")
 
 load("1_Microbiome.RData")
 ```
@@ -166,7 +167,12 @@ library("microeco")
 micro_ps <- phyloseq2meco(ps)
 
 # Merge samples as one community for each group
-levels(micro_ps$sample_table$Treatment) <- list(Budding_100 = "1_100", Budding_200 = "1_200", Budding_25 = "1_25", Flowering_100 = "2_100", Flowering_200 =  "2_200", Flowering_25 = "2_25")
+levels(micro_ps$sample_table$Treatment) <- list("Budding\nOptimum (100 mg/L N)" = "1_100", 
+                                                "Budding\nHigh (200 mg/L N)" = "1_200", 
+                                                "Budding\nLow (25 mg/L N)" = "1_25", 
+                                                "Flowering\nOptimum (100 mg/L N)" = "2_100", 
+                                                "Flowering\nHigh (200 mg/L N)" =  "2_200",
+                                                "Flowering\nLow (25 mg/L N)" = "2_25")
 micro_ps <- micro_ps$merge_samples(use_group = "Treatment")
 
 # micro_ps is a new microtable object
@@ -175,7 +181,7 @@ ps_venn <- trans_venn$new(micro_ps, ratio = NULL)
 plot_ps_venn<-ps_venn$plot_venn(petal_center_size = 25, petal_r = 1, petal_a = 3, petal_move_xy = 3,petal_move_k =3, petal_color_center = "#BEBADA", text_size = 6,
   text_name_size = 5,)
 ggsave(filename = "Figures/1_Petal_plot.jpg",  plot = plot_ps_venn, 
-       width = 12, height = 12, units = "cm", dpi = 2000)
+       width = 14, height = 12, units = "cm", dpi = 2000)
 plot_ps_venn
 ```
 ## SAVE DATA IN PHYLOSEQ FORMAT
@@ -257,19 +263,23 @@ ps.rarefied<- readRDS('3_Final_data/phyloseq_data_rarefy.rds')
     
     levels(fractionReadsAssigned.L$Treatment)<- list(Budding_25 = "1_25", Budding_100 = "1_100", Budding_200 = "1_200", Flowering_25 = "2_25", Flowering_100 = "2_100", Flowering_200 =  "2_200")
     
+fractionReadsAssigned.L<-filter(fractionReadsAssigned.L,taxlevel!="Kingdom")    
+    
     # Boxplot, fraction assigned by SampleType
 fraction <- ggplot(fractionReadsAssigned.L, aes(y = fractionReadsAssigned, x = taxlevel, fill=Treatment)) +
       theme_bw() +
-      geom_boxplot(aes(color=Treatment), outlier.shape=NA, alpha=0.6) +  
+      geom_boxplot(aes(), outlier.shape=NA, alpha=1) +  
       ylab("Fraction of Reads Classified") +
-      xlab("Taxonomic level") +
+      xlab("Taxonomic level") + ylim(0,1) +
       guides(fill = guide_legend(title = "Phenological stage_\nFertilizer dose (mg/L N)"),color = guide_legend(title = "Phenological stage_\nFertilizer dose (mg/L N)")) +
-      theme(legend.position="right", legend.title = element_text(size=9)) +
+      theme(legend.position="bottom", legend.title = element_text(size=9)) +
       #ggtitle("Fraction of reads identified by taxonomic level") +
-      geom_point(position=position_jitterdodge(jitter.width=0, jitter.height=0), size=.1)
-    ggsave(plot = fraction, filename = "Figures/1_Fraction of reads identified by taxonomic level.jpg", width = 7,
-           height = 6,
-           units = "in",
+      geom_point(position=position_jitterdodge(jitter.width=0, jitter.height=0), size=.1) + 
+      scale_y_break(c(0.1,0.6)) + scale_y_break(c(0.75,0.85))
+
+    ggsave(plot = fraction, filename = "Figures/1_Fraction of reads identified by taxonomic level.jpg", width = 170,
+           height = 200,
+           units = "mm",
            dpi = 2100)
 fraction
 

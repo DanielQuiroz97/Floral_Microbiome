@@ -18,8 +18,8 @@ library(vegan)
 library(tidyverse)
 library(phyloseq)
 library("ggtext")
-
-#load("2_Alpha_Beta_Div.RData")
+library(ggpubr)
+load("2_Alpha_Beta_Div.RData")
 ```
 ## Load data
 ```{r}
@@ -82,6 +82,15 @@ t1$res_diff
 save_alpha<-t1$res_diff
 write_xlsx(save_alpha,"Results/2a_alpha_diversity.xlsx")
 
+kruskal.test(Observed ~ Treatment, data = alpha_diversity)
+kruskal.test(InvSimpson ~ Treatment, data = alpha_diversity)
+kruskal.test(Shannon ~ Treatment, data = alpha_diversity)
+pairwise.wilcox.test(alpha_diversity$Shannon, alpha_diversity$Treatment,
+                 p.adjust.method = "none")
+kruskal.test(Evenness ~ Treatment, data = alpha_diversity) 
+pairwise.wilcox.test(alpha_diversity$Evenness, alpha_diversity$Treatment,
+                 p.adjust.method = "none")
+
 ```
 ##Plot Alpha diversity
 ```{r alpha_phyloseq}
@@ -101,20 +110,35 @@ alpha_diversity_long<-pivot_longer(alpha_diversity,c("Observed", "Shannon", "Inv
         levels(alpha_diversity_long$Time)
         alpha_diversity_long$Treatment<-factor(alpha_diversity_long$Treatment,levels=c("1_25","1_100","1_200","2_25","2_100","2_200"))
         levels(alpha_diversity_long$Treatment)
+
+alpha_div_stats <- list("Observed\nKruskal-Wallis, p = 0.46", "Shannon\nKruskal-Wallis, p = 0.04", "InvSimpson\nKruskal-Wallis p = 0.06", "Evenness\nKruskal-Wallis, p = 0.01")
+names(alpha_div_stats)<-c("Observed", "Shannon", "InvSimpson", "Evenness")
         
-plot_alpha <- alpha_diversity_long %>% 
+plot_alpha<-list()                
+for(i in c("Observed", "Shannon", "InvSimpson", "Evenness")){
+
+plot_alpha_diversity <- alpha_diversity_long %>% filter(.,AlphaDiversity == i)
+
+plot_alpha[[i]] <- plot_alpha_diversity %>% 
           ggplot(aes(x=Treatment, y=AlphaDiversityMeasure)) + 
-          geom_boxplot(aes(color=Time),size = 1)  + 
-          facet_wrap(~AlphaDiversity, ncol = 2, scales= "free_y") + 
-          ylab("") +
+          geom_boxplot(aes(color=Time),size = 0.5)  + 
+          #facet_wrap(~AlphaDiversity, ncol = 2, scales= "free",, labeller = labeller(AlphaDiversity=alpha_div_stats)) + 
+          ylab("") + ylim(min(plot_alpha_diversity$AlphaDiversityMeasure)*0.95,max(plot_alpha_diversity$AlphaDiversityMeasure)*1.1) +
+          ggtitle(alpha_div_stats[[i]])+
           #scale_color_discrete(scale_name = "Phenological stage", breaks = c("1","2"), labels=c("Budding","Flowering")) +
           scale_x_discrete("Fertilizer rate (mg/L)", breaks = c("1_25","1_100","1_200","2_25","2_100","2_200"), labels=c("25","100","200","25","100","200")) +
-          theme(text = element_text(size= 18), axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5),legend.title = element_text(size=15), legend.position = "right", axis.title.x = element_text(size=15)) + 
+          theme(text = element_text(size= 15, color = "black"), 
+                axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5,color="black"),
+                legend.title = element_text(size=15), legend.position = "right", 
+                axis.title.x = element_text(size=15,color="black"),
+                plot.title = element_text(size=12, face="bold")) + 
           guides(color = guide_legend(title = "Phenological\nstage")) 
-          
-        
-        ggsave(filename = "Figures/2c_fertilizer_alpha_time.jpg", plot = plot_alpha, 
-               width = 7, height = 5, units = "in", dpi = 2100)
+}     
+
+alpha_combine<-ggarrange(plot_alpha$Observed, plot_alpha$Shannon, plot_alpha$InvSimpson, plot_alpha$Evenness, ncol=2, nrow=2, common.legend = TRUE, legend="right")        
+      
+            ggsave(filename = "Figures/2c_fertilizer_alpha_time.jpg", plot = alpha_combine, 
+               width = 170, height = 150, units = "mm", dpi = 2100)
 plot_alpha
 ```
 ```{r}
